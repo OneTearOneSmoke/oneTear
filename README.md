@@ -141,3 +141,25 @@ context = {
   "params": {...},   # matrix 注入
 }
 ```
+
+## 执行步骤
+
+```shell
+pytest (cases/test_matrix.py)
+│
+├─ 读取矩阵 conf/matrix.yaml
+│
+├─ 展开组合 → matrix_case1, matrix_case2, ...
+│
+├─ 对每个 matrix_case:
+│   ├─ 构建 context（参数注入）
+│   ├─ 加载测试用例 conf/testcases.yaml
+│   ├─ 遍历 testcase steps:
+│   │   ├─ start_step(step)  # Allure / Trace
+│   │   ├─ 执行 step
+│   │   │   ├─ ShellCommand.execute / Chaos.execute
+│   │   └─ end_step(step)    # Allure / Trace
+│   └─ 执行断言 ContainsAssert / EventuallyAssert
+│
+└─ 输出结果 / pytest summary
+```

@@ -1,0 +1,4 @@
+# 原子命令配置文件
+- name: show_cluster
+  run: shell
+  cmd: "echo 'Primary=node1 Standby=node2'"

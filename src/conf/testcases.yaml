@@ -1,0 +1,26 @@
+# conf/testcases/failover_demo.yaml
+name: failover_demo
+description: "测试主节点故障切换"
+matrix:
+  pg_version: [14, 15]
+  node_count: [2, 3]
+steps:
+  - name: show_cluster
+    type: command
+    expect:
+      contains: ["Primary"]
+  - name: kill_primary
+    type: chaos
+    duration: 5
+  - name: show_cluster
+    type: command
+    expect:
+      eventually:
+        contains: ["Primary"]
+hooks:
+  before:
+    - "echo '准备环境'"
+  after:
+    - "echo '清理环境'"
+  on_fail:
+    - "echo '失败处理'"

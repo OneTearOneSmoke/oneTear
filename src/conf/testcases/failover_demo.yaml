@@ -1,0 +1,28 @@
+name: failover_demo
+description: "测试主节点故障切换"
+matrix:
+  pg_version: [15]
+  node_count: [3]
+steps:
+  - name: show_cluster
+    type: command
+    expect:
+      contains: ["Primary"]
+  - name: kill_primary
+    type: chaos
+    duration: 1
+    depends_on: ["show_cluster"]
+  - name: show_cluster_after
+    type: command
+    cmd_ref: show_cluster
+    expect:
+      eventually:
+        contains: ["Primary"]
+    depends_on: ["kill_primary"]
+hooks:
+  before:
+    - "echo '准备环境'"
+  after:
+    - "echo '清理环境'"
+  on_fail:
+    - "echo '失败处理'"
