@@ -1,10 +1,10 @@
 # conf/commands.yaml
 - name: create_file
-  cmd: "touch {filename}"
+  cmd: "touch {{filename}}"
   description: "创建文件"
 - name: list_file
-  cmd: "ls {filename}"
+  cmd: "ls {{filename}}"
   description: "列出文件"
 - name: delete_file
-  cmd: "rm -f {filename}"
+  cmd: "rm -f {{filename}}"
   description: "删除文件"

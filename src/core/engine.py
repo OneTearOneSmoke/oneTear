@@ -8,7 +8,6 @@ import time
 from typing import Dict
 from core.runner import Runner  # 新的统一 Runner
 
-
 class ExecutionEngine:
     def __init__(self, registry, observer):
         self.registry = registry
@@ -45,6 +44,7 @@ class ExecutionEngine:
 
     def run_step(self, step: Dict, context: Dict):
         step_name = step["name"]
+        print("run step " + step_name)
         cmd_ref = step.get("cmd_ref", step_name)
 
         obj = self.registry.get(cmd_ref)

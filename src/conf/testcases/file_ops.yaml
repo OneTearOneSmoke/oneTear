@@ -13,7 +13,7 @@ steps:
   - name: list_file
     cmd_ref: list_file
     expect:
-      contains: "{filename}"  # ls 输出文件名
+      contains: "{{filename}}"  # ls 输出文件名
   - name: delete_file
     cmd_ref: delete_file
     expect:
