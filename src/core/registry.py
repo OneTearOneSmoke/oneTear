@@ -13,7 +13,7 @@ class Registry:
 
     def _load_commands(self, path):
         for cmd_conf in load_commands(path):
-            self.registry[cmd_conf["name"]] = ShellCommand(cmd_conf["cmd"])
+            self.registry[cmd_conf["name"]] = ShellCommand(cmd_conf["name"],cmd_conf["cmd"])
 
     def _load_chaos(self, path):
         for chaos_conf in load_chaos(path):

@@ -1,19 +1,19 @@
-"""
-Process Chaos
-进程相关故障，例如 kill / restart
-"""
-import time
 from chaos.base import Chaos
+from core.runner import Runner
+import time
 
 class KillProcess(Chaos):
-    def __init__(self, cmd, recover_cmd="", duration=0):
+    def __init__(self, name, cmd, recover_cmd=None, duration=0):
+        super().__init__(name)
         self.cmd = cmd
         self.recover_cmd = recover_cmd
         self.duration = duration
 
     def execute(self, context):
-        print(f"[Chaos] inject: {self.cmd}")
-        time.sleep(self.duration)
-        if self.recover_cmd:
-            print(f"[Chaos] recover: {self.recover_cmd}")
+        Runner.run(self.cmd)
+        if self.duration > 0:
+            time.sleep(self.duration)
 
+    def rollback(self, context):
+        if self.recover_cmd:
+            Runner.run(self.recover_cmd)

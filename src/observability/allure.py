@@ -1,29 +1,53 @@
-"""
-Allure 集成封装
-用于测试报告生成
-"""
-import time, allure
-from prometheus_client import Counter, Summary, start_http_server
+# observability/allure.py
+import time
 
-STEP_TIME = Summary('step_execution_seconds', 'Step execution time', ['step'])
-STEP_STATUS = Counter('step_status_total', 'Step success/failure', ['step', 'status'])
-start_http_server(18000)
+class AllureObserver:
+    def __init__(self):
+        try:
+            import allure
+            self.allure = allure
+        except ImportError:
+            self.allure = None
 
-class ObserverAllureProm:
+    # ========== testcase ==========
     def testcase_start(self, name):
-        print(f"[Trace] testcase_start: {name}")
+        if not self.allure:
+            return
+        self.allure.dynamic.title(name)
 
     def testcase_end(self, name):
-        print(f"[Trace] testcase_end: {name}")
+        pass
 
-    def testcase_fail(self, name, exception):
-        print(f"[Trace] testcase_fail: {name}, {exception}")
+    def testcase_fail(self, name, err):
+        if not self.allure:
+            return
+        self.allure.attach(
+            str(err),
+            name="error",
+            attachment_type=self.allure.attachment_type.TEXT,
+        )
 
-    def step_start(self, step_name):
-        print(f"[Trace] step_start: {step_name}")
+    # ========== step ==========
+    def step_start(self, name):
+        if not self.allure:
+            return
+        self._step_ctx = self.allure.step(name)
+        self._step_ctx.__enter__()
 
-    def step_end(self, step_name, success=True, duration=0):
-        print(f"[Trace] step_end: {step_name}, success={success}, duration={duration:.2f}s")
-        STEP_TIME.labels(step=step_name).observe(duration)
-        STEP_STATUS.labels(step=step_name, status='success' if success else 'fail').inc()
+    def step_end(self, name, success, duration):
+        if not self.allure:
+            return
+        self._step_ctx.__exit__(None, None, None)
 
+    # ========== hook ==========
+    def hook_start(self, phase, cmd):
+        if not self.allure:
+            return
+        self.allure.attach(
+            cmd,
+            name=f"hook:{phase}",
+            attachment_type=self.allure.attachment_type.TEXT,
+        )
+
+    def hook_end(self, phase, cmd):
+        pass

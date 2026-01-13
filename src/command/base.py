@@ -1,11 +1,15 @@
-"""
-Command 抽象类
-每个命令都必须继承此类并实现 execute 方法
-"""
-class Command:
-    def execute(self, context):
+# command/base.py
+from abc import ABC, abstractmethod
+
+
+class Command(ABC):
+    def __init__(self, name: str):
+        self.name = name
+
+    @abstractmethod
+    def build_command(self, context: dict):
         """
-        执行命令逻辑
-        :param context: 执行上下文
+        返回 Runner 可执行的 command
+        e.g. str | list
         """
-        raise NotImplementedError("Command must implement execute")
+        pass

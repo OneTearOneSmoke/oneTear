@@ -1,0 +1,27 @@
+# conf/testcases/file_ops.yaml
+name: file_operations_test
+matrix:
+  pg_version: [15]
+  node_count: [3]
+context:
+  filename: "/tmp/demo_test_file.txt"
+steps:
+  - name: create_file
+    cmd_ref: create_file
+    expect:
+      contains: ""  # touch 成功不会输出
+  - name: list_file
+    cmd_ref: list_file
+    expect:
+      contains: "{filename}"  # ls 输出文件名
+  - name: delete_file
+    cmd_ref: delete_file
+    expect:
+      contains: ""  # rm 成功无输出
+hooks:
+  before:
+    - "echo '开始文件操作测试'"
+  after:
+    - "echo '文件操作测试结束'"
+  on_fail:
+    - "echo '文件操作失败'"

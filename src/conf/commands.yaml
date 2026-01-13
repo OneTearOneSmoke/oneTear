@@ -1,4 +1,10 @@
-# 原子命令配置文件
-- name: show_cluster
-  run: shell
-  cmd: "echo 'Primary=node1 Standby=node2'"
+# conf/commands.yaml
+- name: create_file
+  cmd: "touch {filename}"
+  description: "创建文件"
+- name: list_file
+  cmd: "ls {filename}"
+  description: "列出文件"
+- name: delete_file
+  cmd: "rm -f {filename}"
+  description: "删除文件"
