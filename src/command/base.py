@@ -1,15 +1,17 @@
-# command/base.py
 from abc import ABC, abstractmethod
 
-
-class Command(ABC):
-    def __init__(self, name: str):
+class CommandDefinition(ABC):
+    def __init__(self, name, description=""):
         self.name = name
+        self.description = description
 
     @abstractmethod
-    def build_command(self, context: dict):
+    def build(self, action: str, context: dict) -> str:
         """
-        返回 Runner 可执行的 command
-        e.g. str | list
+        action: do | redo | undo
         """
-        pass
+        ...
+
+    @abstractmethod
+    def run(self, cmd: str):
+        ...

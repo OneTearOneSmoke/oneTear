@@ -1,5 +1,0 @@
-# 原子故障配置文件
-- name: kill_primary
-  run: shell
-  cmd: "echo 'kill primary'"
-  recover_cmd: "echo 'recover primary'"

@@ -1,32 +1,26 @@
-from jinja2 import Environment, StrictUndefined, TemplateError
-from command.base import Command
+import subprocess
+from jinja2 import Environment, StrictUndefined
 
+_env = Environment(undefined=StrictUndefined, autoescape=False)
 
-_jinja_env = Environment(
-    undefined=StrictUndefined,   # 缺变量直接失败
-    autoescape=False,
-    trim_blocks=True,
-    lstrip_blocks=True,
-)
+class ShellCommand:
+    def __init__(self, name, cmd, redo_cmd="", undo_cmd="", description=""):
+        self.name = name
+        self.templates = {
+            "do": _env.from_string(cmd),
+            "redo": _env.from_string(redo_cmd or cmd),
+            "undo": _env.from_string(undo_cmd) if undo_cmd else None,
+        }
+        self.description = description
 
+    def build(self, action: str, context: dict) -> str:
+        tpl = self.templates.get(action)
+        if not tpl:
+            return ""
+        return tpl.render(**context)
 
-class ShellCommand(Command):
-    def __init__(self, name: str, cmd_template: str):
-        super().__init__(name)
-        self.cmd_template = cmd_template
-        self._template = _jinja_env.from_string(cmd_template)
-
-    def build_command(self, context: dict) -> str:
-        """
-        使用 Jinja2 + {{ }} 渲染 shell 命令
-        """
-        try:
-            print("TEMPLATE:", self.cmd_template)
-            print("CONTEXT:", context)
-            return self._template.render(**context)
-        except TemplateError as e:
-            raise ValueError(
-                f"[ShellCommand:{self.name}] render failed: {e}\n"
-                f"template: {self.cmd_template}\n"
-                f"context: {context}"
-            )
+    def run(self, cmd: str):
+        if not cmd:
+            return {"stdout": "", "stderr": "", "rc": 0}
+        p = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        return {"stdout": p.stdout, "stderr": p.stderr, "rc": p.returncode}

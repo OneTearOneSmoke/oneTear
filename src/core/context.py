@@ -1,10 +1,10 @@
-"""
-Execution Context
-用于存储测试执行过程中的上下文信息
-包括节点信息、环境变量、测试参数等
-"""
-class Context(dict):
-    """执行上下文，可以存储步骤输出、矩阵参数等"""
-    def update_context(self, key, value):
-        self[key] = value
+class ExecutionContext:
+    def __init__(self, vars: dict):
+        self.vars = dict(vars)
 
+    def update(self, result: dict):
+        self.vars.update({
+            "last_stdout": result["stdout"],
+            "last_stderr": result["stderr"],
+            "last_returncode": result["rc"],
+        })
