@@ -1,35 +1,51 @@
 import yaml
 from pathlib import Path
+
 from command.shell import ShellCommand
+from command.sql.postgres import PostgresSQLCommand
+
 
 class CommandRegistry:
     def __init__(self):
-        self._defs = {}
+        self._cmds = {}
 
     def load_dir(self, path: str):
-        """
-        扫描目录下所有 .yaml 文件并加载命令
-        """
         path = Path(path)
-        if not path.exists() or not path.is_dir():
-            raise ValueError(f"Command path {path} 不存在或不是目录")
+        for yml in path.rglob("*.yaml"):
+            self._load_file(yml)
 
-        for file in path.glob("*.yaml"):
-            with open(file) as f:
-                items = yaml.safe_load(f)
+    def _load_file(self, file: Path):
+        with open(file) as f:
+            items = yaml.safe_load(f) or []
 
-            if not items:
-                continue
+        for item in items:
+            cmd = self._build_command(item)
+            self._cmds[cmd.name] = cmd
 
-            for c in items:
-                if c["type"] == "shell":
-                    self._defs[c["name"]] = ShellCommand(
-                        c["name"],
-                        c["cmd"],
-                        c.get("redo_cmd", ""),
-                        c.get("undo_cmd", ""),
-                        c.get("description", "")
-                    )
+    def _build_command(self, cfg: dict):
+        ctype = cfg["type"]
+
+        if ctype == "shell":
+            return ShellCommand(
+                name=cfg["name"],
+                cmd=cfg["cmd"],
+                redo_cmd=cfg.get("redo_cmd", ""),
+                undo_cmd=cfg.get("undo_cmd", ""),
+                description=cfg.get("description", ""),
+            )
+
+        if ctype == "sql":
+            db = cfg["db"]
+            if db == "postgres":
+                return PostgresSQLCommand(
+                    name=cfg["name"],
+                    sql=cfg["sql"],
+                    description=cfg.get("description", ""),
+                )
+
+            raise ValueError(f"unsupported sql db: {db}")
+
+        raise ValueError(f"unsupported command type: {ctype}")
 
     def get(self, name: str):
-        return self._defs[name]
+        return self._cmds[name]
