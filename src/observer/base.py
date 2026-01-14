@@ -1,21 +1,6 @@
-# observer/base.py
 class BaseObserver:
-    # ---------- TestCase ----------
-    def testcase_start(self, testcase, ctx):
-        pass
-
-    def testcase_end(self, testcase, ctx):
-        pass
-
-    def testcase_fail(self, testcase, ctx):
-        pass
-
-    # ---------- Step ----------
-    def step_start(self, step, ctx):
-        pass
-
-    def step_end(self, step, ctx):
-        pass
-
-    def step_fail(self, step, ctx):
-        pass
+    def testcase_start(self, testcase, context): pass
+    def step_start(self, testcase, node, context): pass
+    def step_end(self, testcase, node, context, result): pass
+    def testcase_error(self, testcase, context, error): pass
+    def testcase_end(self, testcase, context, success): pass

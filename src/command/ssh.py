@@ -4,18 +4,16 @@ import time
 
 _env = Environment(undefined=StrictUndefined, autoescape=False)
 
-class ShellCommand:
-    def __init__(self, name, cmd, redo_cmd="", undo_cmd="", description=""):
+class SSHCommand:
+    def __init__(self, name, cmd, redo_cmd="", undo_cmd="", description="", ssh_host="127.0.0.1", ssh_user=None):
         self.name = name
-        self.templates = {
-            "do": _env.from_string(cmd),
-            "redo": _env.from_string(redo_cmd or cmd),
-            "undo": _env.from_string(undo_cmd) if undo_cmd else None,
-        }
+        self.cmd = cmd
         self.description = description
+        self.ssh_host = ssh_host
+        self.ssh_user = ssh_user
 
     def build(self, template, context):
-        return self.templates["do"].render(**context)
+        return _env.from_string(self.cmd).render(**context)
 
     def run(self, cmd, context, expect=None):
         if not cmd:
@@ -25,15 +23,17 @@ class ShellCommand:
             from jinja2 import Template
             contains = Template(contains).render(**context)
         eventually = float(expect.get("eventually")) if expect and expect.get("eventually") else None
+        ssh_prefix = f"{self.ssh_user}@{self.ssh_host}" if self.ssh_user else self.ssh_host
+        ssh_cmd = f"ssh {ssh_prefix} '{cmd}'"
         start = time.time()
         while True:
-            p = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            p = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
             stdout, stderr, rc = p.stdout, p.stderr, p.returncode
             if eventually:
                 if contains in stdout:
                     return {"stdout": stdout, "stderr": stderr, "rc": rc}
                 if time.time() - start > eventually:
-                    raise AssertionError(f"Eventually timeout for shell: expect [{contains}], got [{stdout}]")
+                    raise AssertionError(f"Eventually timeout for SSH: expect [{contains}], got [{stdout}]")
                 time.sleep(0.5)
                 continue
             return {"stdout": stdout, "stderr": stderr, "rc": rc}

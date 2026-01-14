@@ -4,14 +4,12 @@
   redo_cmd: "touch {{filename}}"
   undo_cmd: "rm -f {{filename}}"
   description: "创建文件"
-
 - name: list_file
   cmd: "ls {{filename}}"
   type: shell
   redo_cmd: "ls {{filename}}"
   undo_cmd: ""
   description: "列出文件"
-
 - name: delete_file
   cmd: "rm -f {{filename}}"
   type: shell

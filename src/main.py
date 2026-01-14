@@ -1,15 +1,22 @@
-from command.registry import CommandRegistry
-from core.loader import load_testcases
+from core.command_registry import CommandRegistry
+from core.testcase_registry import TestCaseRegistry
 from core.engine import ExecutionEngine
 from observer.logger import LoggerObserver
 
-# 加载命令
-cmds = CommandRegistry()
-cmds.load_dir("conf/command")  # 目录下所有 yaml 都会加载
+def main():
+    cmds = CommandRegistry()
+    cmds.load_dir("conf/commands")
 
-# 初始化 Engine + Observer
-engine = ExecutionEngine(cmds, observers=[LoggerObserver()])
+    cases = TestCaseRegistry()
+    cases.load_dir("conf/testcases")
 
-# 加载所有 TestCase 并执行
-for tc in load_testcases("conf/testcases", cmds):
-    engine.run(tc)
+    observers = [LoggerObserver()]
+
+    engine = ExecutionEngine(observers, cmds)
+
+    for case in cases.all():
+        for ctx in case.expand():
+            engine.run_testcase(case, ctx)
+
+if __name__ == "__main__":
+    main()
