@@ -15,7 +15,7 @@ class ExecutionEngine:
 
     def run(self, testcase):
         for vars in testcase.expand():
-            ctx = ExecutionContext(vars)
+            ctx = ExecutionContext(vars,testcase)
             self.notify("testcase_start", testcase, ctx)
             try:
                 self._run_hooks(testcase.hooks.before, ctx)
@@ -31,6 +31,7 @@ class ExecutionEngine:
                 raise
 
     def _run_step(self, step, ctx):
+        ctx.next_step(step.name)
         self.notify("step_start", step, ctx)
         try:
             cmd_str = step.command.build("do", ctx.vars)
