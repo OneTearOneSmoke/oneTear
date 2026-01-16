@@ -2,6 +2,7 @@ from core.command_registry import CommandRegistry
 from core.testcase_registry import TestCaseRegistry
 from core.engine import ExecutionEngine
 from observer.logger import LoggerObserver
+from observer.allure_observer import AllureObserver
 
 def main():
     cmds = CommandRegistry()
@@ -10,7 +11,7 @@ def main():
     cases = TestCaseRegistry()
     cases.load_dir("conf/testcases")
 
-    observers = [LoggerObserver()]
+    observers = [LoggerObserver(),AllureObserver()]
 
     engine = ExecutionEngine(observers, cmds)
 

@@ -16,3 +16,24 @@
   redo_cmd: "rm -f {{filename}}"
   undo_cmd: "touch {{filename}}"
   description: "删除文件"
+
+- name: echo_start
+  cmd: "echo '测试开始'"
+  type: shell
+  redo_cmd: ""
+  undo_cmd: ""
+  description: "打印测试开始"
+
+- name: echo_end
+  cmd: "echo '测试结束'"
+  type: shell
+  redo_cmd: ""
+  undo_cmd: ""
+  description: "打印测试结束"
+
+- name: echo_fail
+  cmd: "echo '测试失败'"
+  type: shell
+  redo_cmd: ""
+  undo_cmd: ""
+  description: "打印测试失败"

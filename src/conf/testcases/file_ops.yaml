@@ -19,8 +19,8 @@ steps:
       contains: ""
 hooks:
   before:
-    - "echo '开始文件操作测试'"
+    - cmd_ref: echo_start
   after:
-    - "echo '文件操作测试结束'"
+    - cmd_ref: echo_end
   on_fail:
-    - "echo '文件操作失败'"
+    - cmd_ref: echo_fail

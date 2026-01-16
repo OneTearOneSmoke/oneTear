@@ -29,24 +29,56 @@ class TestCase:
             ctx = dict(self.context)
             ctx.update(dict(zip(keys, values)))
             yield ctx
-
     def get_nodes(self, command_registry):
         nodes = []
-        for hook in self.hooks.before:
-            cmd_str = hook.get("cmd")
-            cmd_type = hook.get("type","shell")
-            executor = command_registry.get("create_file")
-            nodes.append(ExecutionNode(f"hook_before_{cmd_str}", executor, cmd_str))
-        for step in self.steps:
-            cmd_name = step.get("cmd_ref")
+
+        # ---------- before hooks ----------
+        for i, hook in enumerate(self.hooks.before):
+            cmd_name = hook["cmd_ref"]
             executor = command_registry.get(cmd_name)
-            nodes.append(ExecutionNode(step.get("name"), executor, cmd_name, expect=step.get("expect")))
-        for hook in self.hooks.after:
-            cmd_str = hook.get("cmd")
-            executor = command_registry.get("create_file")
-            nodes.append(ExecutionNode(f"hook_after_{cmd_str}", executor, cmd_str))
-        for hook in self.hooks.on_fail:
-            cmd_str = hook.get("cmd")
-            executor = command_registry.get("create_file")
-            nodes.append(ExecutionNode(f"hook_onfail_{cmd_str}", executor, cmd_str))
+            nodes.append(
+                ExecutionNode(
+                    name=f"hook_before_{cmd_name}_{i}",
+                    executor=executor,
+                    cmd_template=cmd_name
+                )
+            )
+
+        # ---------- steps ----------
+        for step in self.steps:
+            cmd_name = step["cmd_ref"]
+            executor = command_registry.get(cmd_name)
+            nodes.append(
+                ExecutionNode(
+                    name=step["name"],
+                    executor=executor,
+                    cmd_template=cmd_name,
+                    expect=step.get("expect")
+                )
+            )
+
+        # ---------- after hooks ----------
+        for i, hook in enumerate(self.hooks.after):
+            cmd_name = hook["cmd_ref"]
+            executor = command_registry.get(cmd_name)
+            nodes.append(
+                ExecutionNode(
+                    name=f"hook_after_{cmd_name}_{i}",
+                    executor=executor,
+                    cmd_template=cmd_name
+                )
+            )
+
+        # ---------- on_fail hooks ----------
+        for i, hook in enumerate(self.hooks.on_fail):
+            cmd_name = hook["cmd_ref"]
+            executor = command_registry.get(cmd_name)
+            nodes.append(
+                ExecutionNode(
+                    name=f"hook_onfail_{cmd_name}_{i}",
+                    executor=executor,
+                    cmd_template=cmd_name
+                )
+            )
+
         return nodes
