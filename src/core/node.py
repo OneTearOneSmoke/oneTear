@@ -1,10 +1,11 @@
 from jinja2 import Template
 class ExecutionNode:
-    def __init__(self, name, executor, cmd_template, expect=None):
+    def __init__(self, name, executor, cmd_template, expect=None, node_type="shell"):
         self.name = name
         self.executor = executor
         self.cmd_template = cmd_template
         self.expect = expect or {}
+        self.type = node_type  # 方便 LoggerObserver 使用
 
     def run(self, context):
         cmd = self.executor.build(self.cmd_template, context)

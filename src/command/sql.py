@@ -7,6 +7,7 @@ _env = Environment(undefined=StrictUndefined, autoescape=False)
 class SQLCommand:
     def __init__(self, name, cmd, redo_cmd="", undo_cmd="", description="", db_host="localhost", db_name="postgres", db_user="postgres"):
         self.name = name
+        self.type = "sql"
         self.cmd = cmd
         self.description = description
         self.db_host = db_host

@@ -8,6 +8,7 @@ class SSHCommand:
     def __init__(self, name, cmd, redo_cmd="", undo_cmd="", description="", ssh_host="127.0.0.1", ssh_user=None):
         self.name = name
         self.cmd = cmd
+        self.type = "ssh"
         self.description = description
         self.ssh_host = ssh_host
         self.ssh_user = ssh_user

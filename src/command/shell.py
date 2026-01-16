@@ -7,6 +7,7 @@ _env = Environment(undefined=StrictUndefined, autoescape=False)
 class ShellCommand:
     def __init__(self, name, cmd, redo_cmd="", undo_cmd="", description=""):
         self.name = name
+        self.type = "shell"
         self.templates = {
             "do": _env.from_string(cmd),
             "redo": _env.from_string(redo_cmd or cmd),
