@@ -22,3 +22,5 @@ hooks:
     - cmd_ref: echo_start
   after:
     - cmd_ref: echo_end
+  on_faile:
+    - cmd_ref: echo_fail

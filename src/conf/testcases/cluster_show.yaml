@@ -1,0 +1,11 @@
+name: cluster_test
+matrix:
+  pg_version: [15]
+  node_count: [3]
+context:
+  bin_path: "/tmp/demo_test_file.txt"
+steps:
+  - name: cluster_install
+    cmd_ref: cluster_install
+  - name: cluster_show
+    cmd_ref: cluster_show

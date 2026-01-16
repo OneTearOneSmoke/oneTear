@@ -37,3 +37,11 @@
   redo_cmd: ""
   undo_cmd: ""
   description: "打印测试失败"
+
+- name: cluster_install
+  cmd: "echo 'repmgr cluster install'"
+  type: shell
+
+- name: cluster_show
+  cmd: "echo 'repmgr cluster show'"
+  type: shell

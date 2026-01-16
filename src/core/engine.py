@@ -11,9 +11,12 @@ class ExecutionEngine:
         self._notify("testcase_start", testcase, ctx)
 
         try:
+            # all command defined as execute node
             nodes = testcase.get_nodes(self.command_registry)
 
             for node in nodes:
+                if node.name.startswith("hook_onfail"): # hook_fail execute when command failed
+                    continue
                 self._run_step(testcase, node, ctx)
 
             success = True
