@@ -1,0 +1,24 @@
+name: test_ops
+matrix:
+  pg_version: [14]
+  node_count: [3]
+context:
+  filename: "/tmp/test_file.txt"
+steps:
+  - name: create_file
+    cmd_ref: create_file
+    expect:
+      contains: ""
+  - name: list_file
+    cmd_ref: list_file
+    expect:
+      contains: "{{filename}}"
+  - name: delete_file
+    cmd_ref: delete_file
+    expect:
+      contains: ""
+hooks:
+  before:
+    - cmd_ref: echo_start
+  after:
+    - cmd_ref: echo_end

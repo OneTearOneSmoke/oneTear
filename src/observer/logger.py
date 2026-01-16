@@ -8,6 +8,10 @@ MAX_OUTPUT_LEN = 2000  # stdout/stderr 最大打印长度
 
 
 class LoggerObserver(BaseObserver):
+    """
+    每个测试用例一个日志文件，支持详细日志打印
+    """
+
     def __init__(self, base_dir="logs"):
         self.base_dir = Path(base_dir)
         self.base_dir.mkdir(exist_ok=True)
@@ -17,10 +21,14 @@ class LoggerObserver(BaseObserver):
     # =========================
 
     def _setup_logger(self, testcase):
+        """为每个 testcase 创建独立 logger"""
         logger = logging.getLogger(f"testcase.{testcase.name}")
         logger.setLevel(logging.INFO)
+
+        # 避免重复 handler
         if logger.handlers:
             logger.handlers.clear()
+
         fh = logging.FileHandler(
             self.base_dir / f"{testcase.name}.log", encoding="utf-8"
         )
@@ -56,16 +64,21 @@ class LoggerObserver(BaseObserver):
         self.logger.info("")
         self.logger.info(f"[STEP START] {getattr(node, 'name', repr(node))}")
 
-        node_type = node.type
+        # 安全访问 type
+        node_type = getattr(node, "type", "unknown")
         self.logger.info(f"  type    : {node_type}")
         self.logger.info(f"  context : {json.dumps(context, ensure_ascii=False)}")
 
-        # 尝试打印模板命令
-        cmd_template = node.executor.build(node.cmd_template, context)
-        if cmd_template:
-            self.logger.info("  template command :")
-            self.logger.info(textwrap.indent(str(cmd_template).strip(), "    "))
+        # 打印模板命令（由 Node 构建）
+        try:
+            cmd_template = node.executor.build(getattr(node, "cmd_template", ""), context)
+            if cmd_template:
+                self.logger.info("  template command :")
+                self.logger.info(textwrap.indent(str(cmd_template).strip(), "    "))
+        except Exception as e:
+            self.logger.warning(f"Failed to build template command: {e}")
 
+        # 打印 args（可选）
         args = getattr(node, "args", None)
         if args:
             self.logger.info(f"  args    : {json.dumps(args, ensure_ascii=False)}")
@@ -78,7 +91,7 @@ class LoggerObserver(BaseObserver):
         self.logger.info(f"  rc      : {rc}")
         self.logger.info(f"  duration: {duration} ms" if duration else "")
 
-        # 关键改进：打印执行后的命令
+        # 打印实际执行的命令
         executed_cmd = result.get("cmd_executed") if result else None
         if executed_cmd:
             self.logger.info("  executed command :")
