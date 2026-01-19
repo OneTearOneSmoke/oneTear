@@ -15,6 +15,7 @@ class AllureObserver(BaseObserver):
         if desc:
             allure.dynamic.description(desc)
 
+        # context 作为 attachment
         allure.attach(
             str(context),
             name="context",
@@ -29,7 +30,7 @@ class AllureObserver(BaseObserver):
         )
 
     def testcase_end(self, testcase, context, success):
-        pass  # pytest 自动处理 PASS/FAIL
+        pass  # pytest 会自动判定 PASS/FAIL
 
     # =========================
     # Step level
@@ -40,7 +41,6 @@ class AllureObserver(BaseObserver):
         cm.__enter__()
         self._step_stack.append(cm)
 
-        # 附加关键信息
         info = {
             "cmd_ref": getattr(step, "cmd_ref", getattr(step, "name", "")),
             "expect": getattr(step, "expect", {}),
@@ -53,25 +53,13 @@ class AllureObserver(BaseObserver):
         )
 
     def step_end(self, testcase, step, context, result):
-        # step 内 stdout/stderr/rc
         if result:
-            stdout = result.get("stdout")
-            stderr = result.get("stderr")
-            rc = result.get("rc")
-
-            if stdout:
-                allure.attach(stdout, name="stdout", attachment_type=allure.attachment_type.TEXT)
-            if stderr:
-                allure.attach(stderr, name="stderr", attachment_type=allure.attachment_type.TEXT)
-            if rc is not None:
-                allure.attach(str(rc), name="return_code", attachment_type=allure.attachment_type.TEXT)
-
-        # 关闭 step
+            self._attach_step_result(result)
         cm = self._step_stack.pop()
         cm.__exit__(None, None, None)
 
     def step_error(self, testcase, step, context, error, result=None):
-        # 附加 step info
+        # 附加 step 信息
         info = {
             "cmd_ref": getattr(step, "cmd_ref", getattr(step, "name", "")),
             "expect": getattr(step, "expect", {}),
@@ -79,17 +67,9 @@ class AllureObserver(BaseObserver):
         }
         allure.attach(str(info), name=f"{getattr(step,'name','step')}-info", attachment_type=allure.attachment_type.JSON)
 
-        # 附加 stdout/stderr/rc
+        # stdout/stderr/rc
         if result:
-            stdout = result.get("stdout")
-            stderr = result.get("stderr")
-            rc = result.get("rc")
-            if stdout:
-                allure.attach(stdout, name="stdout", attachment_type=allure.attachment_type.TEXT)
-            if stderr:
-                allure.attach(stderr, name="stderr", attachment_type=allure.attachment_type.TEXT)
-            if rc is not None:
-                allure.attach(str(rc), name="return_code", attachment_type=allure.attachment_type.TEXT)
+            self._attach_step_result(result)
 
         # 异常信息
         allure.attach(
@@ -101,6 +81,17 @@ class AllureObserver(BaseObserver):
         cm = self._step_stack.pop()
         cm.__exit__(type(error), error, error.__traceback__)
 
+    def _attach_step_result(self, result):
+        stdout = result.get("stdout")
+        stderr = result.get("stderr")
+        rc = result.get("rc")
+        if stdout:
+            allure.attach(stdout, name="stdout", attachment_type=allure.attachment_type.TEXT)
+        if stderr:
+            allure.attach(stderr, name="stderr", attachment_type=allure.attachment_type.TEXT)
+        if rc is not None:
+            allure.attach(str(rc), name="return_code", attachment_type=allure.attachment_type.TEXT)
+
     # =========================
     # Hook level
     # =========================
@@ -109,37 +100,23 @@ class AllureObserver(BaseObserver):
         cm = allure.step(title)
         cm.__enter__()
         self._step_stack.append(cm)
-        # 可以附加 context
         allure.attach(str(context), name=f"{title}-context", attachment_type=allure.attachment_type.TEXT)
 
     def hook_end(self, testcase, hook, context, result=None):
-        # 附加 hook 执行结果
         if result:
-            stdout = result.get("stdout")
-            stderr = result.get("stderr")
-            rc = result.get("rc")
-            if stdout:
-                allure.attach(stdout, name="stdout", attachment_type=allure.attachment_type.TEXT)
-            if stderr:
-                allure.attach(stderr, name="stderr", attachment_type=allure.attachment_type.TEXT)
-            if rc is not None:
-                allure.attach(str(rc), name="return_code", attachment_type=allure.attachment_type.TEXT)
-
+            self._attach_step_result(result)
         cm = self._step_stack.pop()
         cm.__exit__(None, None, None)
 
     def hook_error(self, testcase, hook, context, error, result=None):
-        # 附加 context & result
         info = {"context": context}
         if result:
             info.update(result)
         allure.attach(str(info), name=f"{hook.name}-error-info", attachment_type=allure.attachment_type.JSON)
-
         allure.attach(
             "".join(traceback.format_exception(type(error), error, error.__traceback__)),
             name="hook_exception",
             attachment_type=allure.attachment_type.TEXT
         )
-
         cm = self._step_stack.pop()
         cm.__exit__(type(error), error, error.__traceback__)
