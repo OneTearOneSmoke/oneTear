@@ -2,6 +2,7 @@ from core.command_registry import CommandRegistry
 from core.testcase_registry import TestCaseRegistry
 from core.engine import ExecutionEngine
 from observer.logger import LoggerObserver
+from observer.allure import AllureObserver
 
 def main():
     """
@@ -19,7 +20,7 @@ def main():
     """
     testcase observer such as log,trace,allure only support log now
     """
-    observers = [LoggerObserver()]
+    observers = [LoggerObserver(), AllureObserver()]
 
 
     """

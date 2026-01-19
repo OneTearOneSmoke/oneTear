@@ -8,15 +8,16 @@ steps:
   - name: create_file
     cmd_ref: create_file
     expect:
-      contains: ""
+      return_code: 0
   - name: list_file
     cmd_ref: list_file
     expect:
+      return_code: 0
       contains: "{{filename}}"
   - name: delete_file
     cmd_ref: delete_file
     expect:
-      contains: ""
+      return_code: 0
 hooks:
   before:
     - cmd_ref: echo_start

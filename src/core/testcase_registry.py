@@ -3,6 +3,7 @@ from pathlib import Path
 from domain.testcase import TestCase
 
 class TestCaseRegistry:
+    __test__ = False
     def __init__(self):
         self._cases = []
 

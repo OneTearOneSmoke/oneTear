@@ -1,0 +1,146 @@
+# ========================
+# 集群状态与健康检查
+# ========================
+- name: repmgr_cluster_status
+  cmd: "{{bin_data}}/repmgr cluster show"
+  type: shell
+  redo_cmd: "{{bin_data}}/repmgr cluster show"
+  undo_cmd: ""
+  description: "查看整个集群状态"
+
+- name: repmgr_node_status
+  cmd: "{{bin_data}}/repmgr node status --verbose --pgdata={{pg_data}}"
+  type: shell
+  redo_cmd: "{{bin_data}}/repmgr node status --verbose --pgdata={{pg_data}}"
+  undo_cmd: ""
+  description: "查看当前节点状态"
+
+- name: repmgr_health_check
+  cmd: |
+    if {{bin_data}}/repmgr cluster show | grep -q 'unreachable'; then
+        echo "Cluster has unreachable nodes"; exit 1; else echo "Cluster healthy"; fi
+  type: shell
+  redo_cmd: "{{bin_data}}/repmgr cluster show"
+  undo_cmd: ""
+  description: "检查集群健康，发现不可达节点返回错误"
+
+# ========================
+# 主节点操作
+# ========================
+- name: repmgr_register_primary
+  cmd: "{{bin_data}}/repmgr primary register --force --pgdata={{pg_data}}"
+  type: shell
+  redo_cmd: "{{bin_data}}/repmgr primary register --force --pgdata={{pg_data}}"
+  undo_cmd: ""
+  description: "注册当前节点为主节点"
+
+- name: repmgr_promote_standby
+  cmd: "{{bin_data}}/repmgr standby promote --pgdata={{pg_data}}"
+  type: shell
+  redo_cmd: "{{bin_data}}/repmgr standby promote --pgdata={{pg_data}}"
+  undo_cmd: ""
+  description: "将备节点提升为主节点"
+
+# ========================
+# 备节点操作
+# ========================
+- name: repmgr_register_standby
+  cmd: "{{bin_data}}/repmgr standby register --force --host={{host}} --dbname={{dbname}} --user={{user}} --pgdata={{pg_data}}"
+  type: shell
+  redo_cmd: "{{bin_data}}/repmgr standby register --force --host={{host}} --dbname={{dbname}} --user={{user}} --pgdata={{pg_data}}"
+  undo_cmd: ""
+  description: "注册备节点到集群"
+
+- name: repmgr_follow_new_primary
+  cmd: "{{bin_data}}/repmgr standby follow --target-host={{new_primary_host}} --pgdata={{pg_data}}"
+  type: shell
+  redo_cmd: "{{bin_data}}/repmgr standby follow --target-host={{new_primary_host}} --pgdata={{pg_data}}"
+  undo_cmd: ""
+  description: "让当前备节点跟随新主节点"
+
+- name: repmgr_rebuild_standby
+  cmd: "{{bin_data}}/repmgr standby clone {{primary_host}} --force --pgdata={{pg_data}}"
+  type: shell
+  redo_cmd: "{{bin_data}}/repmgr standby clone {{primary_host}} --force --pgdata={{pg_data}}"
+  undo_cmd: "rm -rf {{pg_data}}/*"
+  description: "从主节点重建备节点"
+
+# ========================
+# 自动主备切换
+# ========================
+- name: repmgr_auto_failover
+  cmd: |
+    PRIMARY=$({{bin_data}}/repmgr cluster show | grep 'primary' | awk '{print $3}')
+    if ! ping -c 1 $PRIMARY >/dev/null 2>&1; then
+      echo "Primary down, promoting standby..."
+      {{bin_data}}/repmgr standby promote --pgdata={{pg_data}}
+      sleep 5
+      {{bin_data}}/repmgr standby follow --target-host=$(hostname) --pgdata={{pg_data}}
+    else
+      echo "Primary healthy"
+    fi
+  type: shell
+  redo_cmd: "{{bin_data}}/repmgr cluster show"
+  undo_cmd: ""
+  description: "自动检测主节点不可用并提升备节点"
+
+# ========================
+# 节点管理
+# ========================
+- name: repmgr_unregister_node
+  cmd: "{{bin_data}}/repmgr node unregister --node-id={{node_id}} --force --pgdata={{pg_data}}"
+  type: shell
+  redo_cmd: "{{bin_data}}/repmgr node unregister --node-id={{node_id}} --force --pgdata={{pg_data}}"
+  undo_cmd: ""
+  description: "从集群注销节点"
+
+# ========================
+# 日志管理
+# ========================
+- name: repmgr_show_logs
+  cmd: "tail -n 100 {{pg_data}}/pg_repmgr.log"
+  type: shell
+  redo_cmd: "tail -n 100 {{pg_data}}/pg_repmgr.log"
+  undo_cmd: ""
+  description: "查看最近 100 行 repmgr 日志"
+
+- name: repmgr_clear_logs
+  cmd: "rm -f {{pg_data}}/pg_repmgr.log"
+  type: shell
+  redo_cmd: "rm -f {{pg_data}}/pg_repmgr.log"
+  undo_cmd: ""
+  description: "清理 repmgr 日志"
+
+# ========================
+# 数据备份与恢复
+# ========================
+- name: repmgr_backup_standby
+  cmd: "pg_basebackup -h {{primary_host}} -D {{pg_data}} -U {{user}} -Fp -Xs -P"
+  type: shell
+  redo_cmd: "pg_basebackup -h {{primary_host}} -D {{pg_data}} -U {{user}} -Fp -Xs -P"
+  undo_cmd: "rm -rf {{pg_data}}/*"
+  description: "备份主节点数据到备节点"
+
+- name: repmgr_restore_backup
+  cmd: "rm -rf {{pg_data}}/* && tar -xzf {{backup_file}} -C {{pg_data}}"
+  type: shell
+  redo_cmd: "rm -rf {{pg_data}}/* && tar -xzf {{backup_file}} -C {{pg_data}}"
+  undo_cmd: "rm -rf {{pg_data}}/*"
+  description: "从备份文件恢复数据"
+
+# ========================
+# 自动监控与修复
+# ========================
+- name: repmgr_auto_monitor
+  cmd: |
+    {{bin_data}}/repmgr cluster show | grep -q 'unreachable' && \
+    echo "Detected unreachable nodes, attempt rebuild..." && \
+    UNREACHABLE_NODES=$({{bin_data}}/repmgr cluster show | grep 'unreachable' | awk '{print $2}') && \
+    for NODE in $UNREACHABLE_NODES; do \
+      echo "Rebuilding node $NODE" && \
+      {{bin_data}}/repmgr standby clone $NODE --force --pgdata={{pg_data}}; \
+    done
+  type: shell
+  redo_cmd: "{{bin_data}}/repmgr cluster show"
+  undo_cmd: ""
+  description: "自动检测不可达节点并尝试重建"
