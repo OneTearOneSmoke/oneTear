@@ -1,9 +1,10 @@
 from jinja2 import Environment, StrictUndefined
+from command.executor import CommandExecutor
 
 _env = Environment(undefined=StrictUndefined, autoescape=False)
 
 
-class BaseSQLCommand:
+class BaseSQLCommand(CommandExecutor):
     """
     SQL Command 的抽象基类
 

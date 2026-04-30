@@ -1,5 +1,6 @@
 import subprocess
 from jinja2 import Environment, StrictUndefined
+from command.executor import CommandExecutor
 
 # =========================
 # Jinja2 全局环境
@@ -13,7 +14,7 @@ _env = Environment(
 )
 
 
-class ShellCommand:
+class ShellCommand(CommandExecutor):
     """
     ShellCommand 表示一个“可执行命令”的定义对象
 

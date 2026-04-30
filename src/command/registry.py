@@ -1,4 +1,5 @@
 import yaml
+import inspect
 from pathlib import Path
 
 from command.shell import ShellCommand
@@ -8,6 +9,10 @@ from command.sql.postgres import PostgresSQLCommand
 class CommandRegistry:
     def __init__(self):
         self._cmds = {}
+        self._executors = {
+            "shell": ShellCommand,
+            "sql:postgres": PostgresSQLCommand,
+        }
 
     def load_dir(self, path: str):
         path = Path(path)
@@ -24,9 +29,9 @@ class CommandRegistry:
 
     def _build_command(self, cfg: dict):
         ctype = cfg["type"]
-
         if ctype == "shell":
-            return ShellCommand(
+            executor_cls = self._executors["shell"]
+            return executor_cls(
                 name=cfg["name"],
                 cmd=cfg["cmd"],
                 redo_cmd=cfg.get("redo_cmd", ""),
@@ -36,8 +41,10 @@ class CommandRegistry:
 
         if ctype == "sql":
             db = cfg["db"]
-            if db == "postgres":
-                return PostgresSQLCommand(
+            key = f"sql:{db}"
+            if key in self._executors:
+                executor_cls = self._executors[key]
+                return executor_cls(
                     name=cfg["name"],
                     sql=cfg["sql"],
                     description=cfg.get("description", ""),
@@ -45,7 +52,20 @@ class CommandRegistry:
 
             raise ValueError(f"unsupported sql db: {db}")
 
+        if ctype in self._executors:
+            executor_cls = self._executors[ctype]
+            kwargs = self._filter_supported_kwargs(executor_cls, cfg)
+            return executor_cls(**kwargs)
+
         raise ValueError(f"unsupported command type: {ctype}")
 
     def get(self, name: str):
         return self._cmds[name]
+
+    def register_executor(self, type_name: str, executor_cls):
+        self._executors[type_name] = executor_cls
+
+    def _filter_supported_kwargs(self, executor_cls, cfg: dict):
+        sig = inspect.signature(executor_cls.__init__)
+        supported = set(sig.parameters.keys()) - {"self"}
+        return {k: v for k, v in cfg.items() if k in supported}

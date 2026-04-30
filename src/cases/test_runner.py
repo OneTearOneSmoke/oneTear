@@ -133,3 +133,66 @@ def test_step_retry_overrides_defaults():
     )
     with pytest.raises(AssertionError):
         engine.run(testcase)
+
+
+def test_registry_can_register_custom_executor(tmp_path):
+    class CustomExecutor:
+        def __init__(self, name, cmd, description=""):
+            self.name = name
+            self.cmd = cmd
+            self.description = description
+
+        def build(self, action, context):
+            return self.cmd
+
+        def run(self, cmd):
+            return {"stdout": cmd, "stderr": "", "rc": 0}
+
+    conf = tmp_path / "commands.yaml"
+    conf.write_text(
+        "- name: custom_cmd\n"
+        "  type: custom\n"
+        "  cmd: \"echo custom\"\n"
+        "  description: \"custom\"\n",
+        encoding="utf-8",
+    )
+
+    registry = CommandRegistry()
+    registry.register_executor("custom", CustomExecutor)
+    registry.load_dir(str(tmp_path))
+
+    loaded = registry.get("custom_cmd")
+    assert isinstance(loaded, CustomExecutor)
+    assert loaded.build("do", {}) == "echo custom"
+
+
+def test_undo_command_runs_when_step_fails():
+    class FailingCommand:
+        def __init__(self):
+            self.executed = []
+            self.name = "failing_command"
+
+        def build(self, action, context):
+            return action
+
+        def run(self, cmd):
+            self.executed.append(cmd)
+            if cmd == "do":
+                raise RuntimeError("boom")
+            return {"stdout": "", "stderr": "", "rc": 0}
+
+    cmd = FailingCommand()
+    step = Step("failing_step", cmd)
+    testcase = DomainTestCase(
+        name="undo_case",
+        matrix={},
+        context={},
+        steps=[step],
+        hooks=Hooks(),
+    )
+    engine = ExecutionEngine(cmd_registry={})
+
+    with pytest.raises(RuntimeError):
+        engine.run(testcase)
+
+    assert cmd.executed == ["do", "undo"]
