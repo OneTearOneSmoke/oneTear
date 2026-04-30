@@ -11,10 +11,14 @@ steps:
       contains: ""  # touch 成功不会输出
   - name: list_file
     cmd_ref: list_file
+    retry:
+      timeout: 5
+      interval: 0.5
+      max_retries: 5
     expect:
       eventually:
         contains: "{{filename}}"  # ls 输出文件名
-        timeout: 5
+        timeout: 3
   - name: delete_file
     cmd_ref: delete_file
     expect:

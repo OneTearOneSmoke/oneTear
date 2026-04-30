@@ -1,55 +1,135 @@
+from pathlib import Path
+
 import pytest
-import itertools
-import time
-from dsl.loader import load_testcases, load_commands, load_chaos
-from core.engine import ExecutionEngine
-from observability.allure import ObserverAllureProm
+
+from assertor.contains import ContainsAsserter
 from command.shell import ShellCommand
-from chaos.process import KillProcess
-from core.context import Context
+from command.registry import CommandRegistry
+from core.engine import ExecutionEngine
+from core.loader import load_testcases
+from domain.hooks import Hooks
+from domain.step import Step
+from domain.testcase import TestCase as DomainTestCase
+from observer.logger import LoggerObserver
 
-def build_registry():
-    registry = {}
-    for cmd_conf in load_commands("conf/commands.yaml"):
-        registry[cmd_conf["name"]] = ShellCommand(cmd_conf["cmd"])
-    for chaos_conf in load_chaos("conf/chaos.yaml"):
-        registry[chaos_conf["name"]] = KillProcess(
-            chaos_conf["cmd"],
-            chaos_conf.get("recover_cmd",""),
-            chaos_conf.get("duration",0)
-        )
-    return registry
 
-def expand_matrix(matrix):
-    keys = matrix.keys()
-    for combo in itertools.product(*matrix.values()):
-        yield dict(zip(keys, combo))
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[1]
 
-registry = build_registry()
-observer = ObserverAllureProm()
-engine = ExecutionEngine(registry, observer)
-testcases = load_testcases("conf/testcases")
 
-param_list = []
-for tc in testcases:
-    matrix = tc.get("matrix", {})
-    if matrix:
-        for combo in expand_matrix(matrix):
-            param_list.append((tc, combo))
-    else:
-        param_list.append((tc, {}))
+def _build_engine_and_cases():
+    root = _project_root()
+    cmds = CommandRegistry()
+    cmds.load_dir(str(root / "conf" / "command"))
 
-# 安全生成 pytest ID
-def make_test_id(param):
-    # param 直接就是 tuple (testcase, matrix_params)
-    tc, matrix_params = param
-    tc_name = tc.get("name") if isinstance(tc, dict) else "unknown"
-    matrix_str = "_".join(f"{k}{v}" for k,v in matrix_params.items())
-    return f"{tc_name}_{matrix_str}" if matrix_str else tc_name
+    engine = ExecutionEngine(cmds, observers=[LoggerObserver(base_dir=str(root / "logs"))])
+    cases = load_testcases(str(root / "conf" / "testcases"), cmds)
+    return engine, cases
 
-@pytest.mark.parametrize("testcase,matrix_params", param_list, ids=[make_test_id(p) for p in param_list])
-def test_yaml_testcase(testcase, matrix_params):
-    context = Context()
-    context.update(matrix_params)
-    context.update({"last_output":"Primary=node1"})
-    engine.run_testcase(testcase, context)
+
+def test_load_testcases_and_expand_matrix():
+    _, cases = _build_engine_and_cases()
+    assert len(cases) == 1
+
+    expanded = list(cases[0].expand())
+    assert len(expanded) == 2
+    assert expanded[0]["node_count"] == 2
+    assert expanded[1]["node_count"] == 3
+
+
+def test_file_ops_testcase_runs_successfully():
+    engine, cases = _build_engine_and_cases()
+    engine.run(cases[0])
+
+
+def test_eventually_uses_redo_command():
+    step = Step(
+        "retry_step",
+        ShellCommand(
+            name="retry_cmd",
+            cmd="echo status=pending",
+            redo_cmd="echo status=ready",
+        ),
+        ContainsAsserter("status=ready", eventually=True, timeout=2),
+    )
+    testcase = DomainTestCase(
+        name="retry_case",
+        matrix={},
+        context={},
+        steps=[step],
+        hooks=Hooks(),
+    )
+    engine = ExecutionEngine(cmd_registry={})
+    engine.run(testcase)
+
+
+def test_eventually_fails_when_max_retries_exceeded():
+    step = Step(
+        "retry_fail_step",
+        ShellCommand(
+            name="retry_fail_cmd",
+            cmd="echo status=pending",
+            redo_cmd="echo status=pending",
+        ),
+        ContainsAsserter("status=ready", eventually=True, timeout=5, interval=0, max_retries=2),
+    )
+    testcase = DomainTestCase(
+        name="retry_fail_case",
+        matrix={},
+        context={},
+        steps=[step],
+        hooks=Hooks(),
+    )
+    engine = ExecutionEngine(cmd_registry={})
+    with pytest.raises(AssertionError):
+        engine.run(testcase)
+
+
+def test_retry_defaults_are_applied():
+    step = Step(
+        "retry_defaults_step",
+        ShellCommand(
+            name="retry_defaults_cmd",
+            cmd="echo status=pending",
+            redo_cmd="echo status=ready",
+        ),
+        ContainsAsserter("status=ready", eventually=True, timeout=5, interval=1, max_retries=0),
+    )
+    testcase = DomainTestCase(
+        name="retry_defaults_case",
+        matrix={},
+        context={},
+        steps=[step],
+        hooks=Hooks(),
+    )
+    engine = ExecutionEngine(
+        cmd_registry={},
+        retry_defaults={"timeout": 1, "interval": 0, "max_retries": 1},
+    )
+    engine.run(testcase)
+
+
+def test_step_retry_overrides_defaults():
+    step = Step(
+        "retry_override_step",
+        ShellCommand(
+            name="retry_override_cmd",
+            cmd="echo status=pending",
+            redo_cmd="echo status=ready",
+        ),
+        ContainsAsserter("status=ready", eventually=True, timeout=5, interval=0, max_retries=5),
+        retry={"max_retries": 0, "interval": 0},
+    )
+    testcase = DomainTestCase(
+        name="retry_override_case",
+        matrix={},
+        context={},
+        steps=[step],
+        hooks=Hooks(),
+    )
+    engine = ExecutionEngine(
+        cmd_registry={},
+        retry_defaults={"timeout": 1, "interval": 0, "max_retries": 2},
+    )
+    with pytest.raises(AssertionError):
+        engine.run(testcase)

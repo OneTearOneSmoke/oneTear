@@ -1,4 +1,3 @@
-import psycopg2
 from command.sql.base import BaseSQLCommand
 
 
@@ -7,10 +6,21 @@ class PostgresSQLCommand(BaseSQLCommand):
     PostgreSQL SQL Command 实现
     """
 
-    def run(self, sql: str, context: dict):
+    def run(self, sql: str):
         """
         执行 SQL 并返回统一结果结构
         """
+        context = self._last_context or {}
+
+        try:
+            import psycopg2
+        except ModuleNotFoundError:
+            return {
+                "stdout": "",
+                "stderr": "psycopg2 is not installed. Install dependencies before running SQL commands.",
+                "rc": 1,
+            }
+
         conn = psycopg2.connect(
             host=context["pg_host"],
             port=context.get("pg_port", 5432),

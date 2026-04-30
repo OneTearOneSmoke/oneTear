@@ -16,7 +16,7 @@ def load_testcases(path: str, cmd_registry):
         for s in conf["steps"]:
             cmd_def = cmd_registry.get(s["cmd_ref"])
             asserter = build_asserter(s["expect"]) if "expect" in s else None
-            steps.append(Step(s["name"], cmd_def, asserter))
+            steps.append(Step(s["name"], cmd_def, asserter, retry=s.get("retry", {})))
 
         hooks = Hooks(**conf.get("hooks", {}))
 

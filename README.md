@@ -1,165 +1,96 @@
 # oneTear
 
-一个可观察的自动化框架以为了达到：一杯茶，一包烟，一个测试跑一天。
+一个面向 YAML 用例编排的轻量自动化测试框架原型。
 
-| 维度              | 状态 |
-| --------------- | -- |
-| pytest          | ✅  |
-| DSL + DAG       | ✅  |
-| 并行调度            | ✅  |
-| Retry / Timeout | ✅  |
-| Node Selector   | ✅  |
-| Cache           | ✅  |
-| Hooks           | ✅  |
-| Allure          | ✅  |
-| Trace           | ✅  |
-| Metrics         | ✅  |
+## 当前完成度
 
+| 能力项 | 状态 | 说明 |
+| --- | --- | --- |
+| 命令 DSL（Shell） | done | 支持 Jinja2 变量渲染，支持 `do/redo/undo` 模板 |
+| 命令 DSL（SQL/Postgres） | done | 已接入统一执行协议，按需导入 `psycopg2` |
+| TestCase Loader | done | 从 `conf/testcases/*.yaml` 加载 case |
+| Matrix 参数展开 | done | 支持笛卡尔积展开多组执行上下文 |
+| 执行引擎（串行） | done | 顺序执行 step，失败回滚，支持 hooks |
+| 断言 contains/eventually | done | `eventually` 支持 `timeout/interval/max_retries`，可通过 `redo_cmd` 重试 |
+| 日志观察器 | done | 控制台 + 文件日志 |
+| pytest 集成 | done | 有可运行的集成测试 |
+| Allure 观察器 | partial | 主入口默认尝试启用，报告配置与验证链路仍待完善 |
+| 并行调度 / DAG / Node Selector / Cache / Trace / Metrics | planned | 尚未在代码中实现 |
 
+## 项目结构
 
-
-与repmgr和postgresql的解耦，设计成一套通用的自动化测试框架，整体架构分为四部分：（整体框架组件pytest+chaos+tempo+promethus+allure）
-
-- 用例模块（用例采用原子命令组合，并且有预期结果，有before，有after，有on_fail）--》先定义原子命令，再由原子命令组合为测试用例
-- 故障模块（故障也是采用原子命令组合，每一种故障时一个命令）--》先定义原子故障，再由命令和故障组合为测试用例
-- trace+metric
-- 报告查看跟踪（allure）
-
-- 命令（Command）
-
-- 故障（Chaos）
-
-- 组合关系（DAG / Sequence）
-
-- 期望结果（Assert）
-
-- 可观测性（Trace / Metric）
-
-- 报告（Allure）
-
-```shell
-┌───────────────────────────────────────────┐
-│               pytest Runner                │
-│                                           │
-│  ┌───────────────┐   ┌─────────────────┐ │
-│  │ Testcase DSL  │ → │ Execution Engine │ │
-│  └───────────────┘   └────────┬────────┘ │
-│                               │          │
-│         ┌──────────────┬──────┴──────┐   │
-│         │              │             │   │
-│   Command Module   Chaos Module   Assert Module
-│         │              │             │
-│         └──────────────┴──────┬──────┘
-│                                │
-│        ┌─────────────── Observability ───────────────┐
-│        │                                              │
-│   OpenTelemetry Trace → Tempo         Metrics → Prometheus
-│        │                                              │
-│        └──────────────────┬──────────────────────────┘
-│                           │
-│                     Allure Report
-└───────────────────────────────────────────┘
+```text
+src/
+  command/        # 命令定义与注册（shell/sql）
+  core/           # 引擎、上下文、loader
+  domain/         # TestCase/Step/Hooks 模型
+  assertor/       # 断言实现
+  observer/       # 观察器（logger/allure）
+  conf/           # 命令与测试用例配置
+  cases/          # pytest 集成测试
+  main.py         # 本地执行入口
 ```
 
-| 模块   | 职责                            |
-| ---- | ----------------------------- |
-| 用例模块 | 定义「**做什么 + 期望什么**」            |
-| 故障模块 | 定义「**破坏什么 + 如何恢复**」           |
-| 执行引擎 | 统一调度 Command / Chaos / Assert |
-| 可观测  | Trace / Metric / Allure       |
+## 快速开始
 
-## 核心抽象模型
+1. 进入源码目录
 
-### command
+```bash
+cd src
+```
 
-最小可执行单元。
+2. 安装依赖（任选其一）
 
-- 配置接口
+```bash
+pip install -e .
+```
 
-```shell
-commands:
-  - name: show_cluster
-    run: shell
-    cmd: "xxx cluster show"
-    description: "cluster show"
+3. 运行测试
+
+```bash
+pytest -q
+```
+
+4. 执行示例用例
+
+```bash
+python main.py
+```
+
+运行成功后可在 `src/logs/` 下看到按 testcase 分组的日志文件。
+
+## 配置示例
+
+- 命令定义：`src/conf/command/test.yaml`
+- SQL 命令定义：`src/conf/command/sql/postgres.yaml`
+- 用例定义：`src/conf/testcases/file_ops.yaml`
+
+### Step 级重试策略
+
+`eventually` 的重试参数可以写在断言中，也可以写在 step 的 `retry` 字段中。  
+优先级：`step.retry` > `ExecutionEngine.retry_defaults` > 断言内默认值。
+
+```yaml
+steps:
+  - name: list_file
+    cmd_ref: list_file
+    retry:
+      timeout: 5
+      interval: 0.5
+      max_retries: 5
     expect:
-      contains: ["primary"]
-
-    hooks:
-      before: []
-      after: []
-      on_fail: []
-```
-
-- 抽象接口
-
-```python
-class Command:
-    def execute(self, context) -> Result
-```
-
-### 原子故障（chaos）
-
-也是一种命令，但语义是“破坏”。
-
-```command
-chaos:
-  - name: kill_process
-    run: shell
-    cmd: "pkill -9 postgres"
-    recover:
-      cmd: "systemctl start postgres"
-    duration: 10
-```
-
-```python
-也是一种命令，但语义是“破坏”
-```
-
-### 测试用例
-
-测试用例本身不关心“怎么执行”。
-
-```yaml
-testcases:
-  - name: primary_failover
-    steps:
-      - show_cluster
-      - kill_process
-      - show_cluster
-    assert:
       eventually:
-        contains: ["new_primary"]
+        contains: "{{filename}}"
 ```
 
-### 执行上下文
+## 已知限制
 
-```yaml
-context = {
-  "nodes": [...],
-  "env": {...},
-  "params": {...},   # matrix 注入
-}
-```
+1. SQL 命令要求上下文中存在 `pg_host/pg_user/pg_password/pg_db`。
+2. `redo` 依赖命令定义中的 `redo_cmd`，未配置时会回退到主命令模板。
+3. 文档中的高级能力（并行、DAG、指标、链路追踪）仍是规划项。
 
-## 执行步骤
+## 下一步建议
 
-```shell
-pytest (cases/test_matrix.py)
-│
-├─ 读取矩阵 conf/matrix.yaml
-│
-├─ 展开组合 → matrix_case1, matrix_case2, ...
-│
-├─ 对每个 matrix_case:
-│   ├─ 构建 context（参数注入）
-│   ├─ 加载测试用例 conf/testcases.yaml
-│   ├─ 遍历 testcase steps:
-│   │   ├─ start_step(step)  # Allure / Trace
-│   │   ├─ 执行 step
-│   │   │   ├─ ShellCommand.execute / Chaos.execute
-│   │   └─ end_step(step)    # Allure / Trace
-│   └─ 执行断言 ContainsAssert / EventuallyAssert
-│
-└─ 输出结果 / pytest summary
-```
+1. 设计 DAG 调度模型（拓扑排序 + 节点级失败策略）。
+2. 接入 OpenTelemetry/Prometheus，补齐 Trace/Metrics。
+3. 增加 SQL 集成测试（可选使用临时 Postgres 容器）。

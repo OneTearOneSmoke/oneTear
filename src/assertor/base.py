@@ -10,5 +10,5 @@ class Asserter(ABC):
         ...
 
     @abstractmethod
-    def assert_result(self, result: dict):
+    def assert_result(self, result: dict, retry_fn=None, retry_policy=None):
         ...

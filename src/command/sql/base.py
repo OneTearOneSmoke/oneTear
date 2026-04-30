@@ -19,14 +19,18 @@ class BaseSQLCommand:
         self.name = name
         self.template = _env.from_string(sql)
         self.description = description
+        self._last_context = None
 
-    def build(self, context: dict) -> str:
+    def build(self, action: str, context: dict) -> str:
         """
         使用 context 渲染 SQL
         """
+        if action == "undo":
+            return ""
+        self._last_context = context
         return self.template.render(**context)
 
-    def run(self, sql: str, context: dict):
+    def run(self, sql: str):
         """
         执行 SQL（子类必须实现）
         """

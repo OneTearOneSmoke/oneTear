@@ -1,11 +1,11 @@
-import time
 from core.context import ExecutionContext
 from command.shell import ShellCommand
 
 class ExecutionEngine:
-    def __init__(self, cmd_registry, observers=None):
+    def __init__(self, cmd_registry, observers=None, retry_defaults=None):
         self.cmd_registry = cmd_registry
         self.observers = observers or []
+        self.retry_defaults = retry_defaults or {}
 
     def notify(self, event, *args):
         for obs in self.observers:
@@ -39,7 +39,12 @@ class ExecutionEngine:
             ctx.update(result)
 
             if step.asserter:
-                step.asserter.render(ctx.vars).assert_result(result)
+                rendered = step.asserter.render(ctx.vars)
+                rendered.assert_result(
+                    result,
+                    retry_fn=lambda: self._redo_step(step, ctx),
+                    retry_policy=self._resolve_retry_policy(step),
+                )
 
             self.notify("step_end", step, ctx)
 
@@ -48,6 +53,17 @@ class ExecutionEngine:
             step.command.run(undo_cmd)
             self.notify("step_fail", step, ctx)
             raise e
+
+    def _redo_step(self, step, ctx):
+        redo_cmd = step.command.build("redo", ctx.vars)
+        result = step.command.run(redo_cmd)
+        ctx.update(result)
+        return result
+
+    def _resolve_retry_policy(self, step):
+        policy = dict(self.retry_defaults)
+        policy.update(step.retry or {})
+        return policy
 
     def _run_hooks(self, hooks, ctx):
         for h in hooks:
