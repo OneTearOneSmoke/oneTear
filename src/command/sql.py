@@ -31,7 +31,7 @@ class SQLCommand:
             p = subprocess.run(psql_cmd, shell=True, capture_output=True, text=True)
             stdout, stderr, rc = p.stdout, p.stderr, p.returncode
             if eventually:
-                if contains in stdout:
+                if contains is None or contains in stdout:
                     return {"stdout": stdout, "stderr": stderr, "rc": rc}
                 if time.time() - start > eventually:
                     raise AssertionError(f"Eventually timeout for SQL: expect [{contains}], got [{stdout}]")

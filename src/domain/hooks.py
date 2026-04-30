@@ -21,7 +21,7 @@ class Hooks:
         normalized = []
         for item in items:
             if isinstance(item, str):
-                normalized.append({"cmd": item, "type": "shell"})
+                normalized.append({"cmd_ref": item, "type": "shell"})
             else:
                 normalized.append(item)
         return normalized

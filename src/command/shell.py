@@ -16,7 +16,10 @@ class ShellCommand:
         self.description = description
 
     def build(self, template, context):
-        return self.templates["do"].render(**context)
+        tpl = self.templates.get(template)
+        if not tpl:
+            return ""
+        return tpl.render(**context)
 
     def _check_return_code(self,expected_rc, actual_rc, stdout, stderr, cmd):
         if expected_rc is None:

@@ -31,10 +31,15 @@ class TestCase:
             yield ctx
     def get_nodes(self, command_registry):
         nodes = []
+        def _resolve_hook_cmd_ref(hook: dict) -> str:
+            cmd_ref = hook.get("cmd_ref") or hook.get("cmd")
+            if not cmd_ref:
+                raise KeyError(f"hook missing cmd_ref/cmd: {hook}")
+            return cmd_ref
 
         # ---------- before hooks ----------
         for i, hook in enumerate(self.hooks.before):
-            cmd_name = hook["cmd_ref"]
+            cmd_name = _resolve_hook_cmd_ref(hook)
             executor = command_registry.get(cmd_name)
             nodes.append(
                 ExecutionNode(
@@ -59,7 +64,7 @@ class TestCase:
 
         # ---------- after hooks ----------
         for i, hook in enumerate(self.hooks.after):
-            cmd_name = hook["cmd_ref"]
+            cmd_name = _resolve_hook_cmd_ref(hook)
             executor = command_registry.get(cmd_name)
             nodes.append(
                 ExecutionNode(
@@ -71,7 +76,7 @@ class TestCase:
 
         # ---------- on_fail hooks ----------
         for i, hook in enumerate(self.hooks.on_fail):
-            cmd_name = hook["cmd_ref"]
+            cmd_name = _resolve_hook_cmd_ref(hook)
             executor = command_registry.get(cmd_name)
             nodes.append(
                 ExecutionNode(
