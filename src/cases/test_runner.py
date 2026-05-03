@@ -196,3 +196,67 @@ def test_undo_command_runs_when_step_fails():
         engine.run(testcase)
 
     assert cmd.executed == ["do", "undo"]
+
+
+def test_return_code_assertion_passes():
+    step = Step(
+        "rc_ok_step",
+        ShellCommand(name="rc_ok_cmd", cmd="sh -c 'exit 0'"),
+        ContainsAsserter(None, expected_rc=0),
+    )
+    testcase = DomainTestCase(
+        name="rc_ok_case",
+        matrix={},
+        context={},
+        steps=[step],
+        hooks=Hooks(),
+    )
+    engine = ExecutionEngine(cmd_registry={})
+    engine.run(testcase)
+
+
+def test_return_code_assertion_fails():
+    step = Step(
+        "rc_fail_step",
+        ShellCommand(name="rc_fail_cmd", cmd="sh -c 'exit 1'"),
+        ContainsAsserter(None, expected_rc=0),
+    )
+    testcase = DomainTestCase(
+        name="rc_fail_case",
+        matrix={},
+        context={},
+        steps=[step],
+        hooks=Hooks(),
+    )
+    engine = ExecutionEngine(cmd_registry={})
+    with pytest.raises(AssertionError):
+        engine.run(testcase)
+
+
+def test_eventually_return_code_uses_redo_command():
+    class RcFlipCommand:
+        def __init__(self):
+            self.name = "rc_flip_cmd"
+
+        def build(self, action, context):
+            return action
+
+        def run(self, cmd):
+            if cmd == "do":
+                return {"stdout": "", "stderr": "", "rc": 1}
+            return {"stdout": "", "stderr": "", "rc": 0}
+
+    step = Step(
+        "rc_eventually_step",
+        RcFlipCommand(),
+        ContainsAsserter(None, eventually=True, timeout=2, interval=0, max_retries=2, expected_rc=0),
+    )
+    testcase = DomainTestCase(
+        name="rc_eventually_case",
+        matrix={},
+        context={},
+        steps=[step],
+        hooks=Hooks(),
+    )
+    engine = ExecutionEngine(cmd_registry={})
+    engine.run(testcase)
