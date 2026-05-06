@@ -67,5 +67,23 @@ class ExecutionEngine:
 
     def _run_hooks(self, hooks, ctx):
         for h in hooks:
-            cmd = ShellCommand("hook", h).build("do", ctx.vars)
-            ShellCommand("hook", h).run(cmd)
+            if isinstance(h, str):
+                cmd = ShellCommand("hook", h).build("do", ctx.vars)
+                ShellCommand("hook", h).run(cmd)
+                continue
+
+            if isinstance(h, dict):
+                cmd_ref = h.get("cmd_ref") or h.get("cmd")
+                if not cmd_ref:
+                    raise KeyError(f"hook missing cmd_ref/cmd: {h}")
+
+                if "cmd_ref" in h:
+                    cmd_def = self.cmd_registry.get(cmd_ref)
+                    hook_cmd = cmd_def.build("do", ctx.vars)
+                    cmd_def.run(hook_cmd)
+                else:
+                    hook_cmd = ShellCommand("hook", cmd_ref).build("do", ctx.vars)
+                    ShellCommand("hook", cmd_ref).run(hook_cmd)
+                continue
+
+            raise TypeError(f"unsupported hook type: {type(h)}")

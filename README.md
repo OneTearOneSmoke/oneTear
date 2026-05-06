@@ -65,6 +65,17 @@ python main.py
 - SQL 命令定义：`src/conf/command/sql/postgres.yaml`
 - 用例定义：`src/conf/testcases/file_ops.yaml`
 
+### 配置兼容性
+
+1. 命令目录同时支持：
+- `conf/command/**`（当前主路径）
+- `conf/commands/*.yaml`（兼容 new_frame 路径）
+2. step 命令引用同时支持 `cmd_ref` 与 `cmd`（`cmd` 作为命令名别名）。
+3. hooks 同时支持：
+- 字符串 shell 命令（例如 `"echo start"`）
+- 字典写法 `cmd_ref: xxx`（引用命令注册表）
+- 字典写法 `cmd: "echo start"`（内联 shell 命令）
+
 ### Step 级重试策略
 
 `eventually` 的重试参数可以写在断言中，也可以写在 step 的 `retry` 字段中。  

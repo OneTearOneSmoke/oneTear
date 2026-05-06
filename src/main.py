@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from command.registry import CommandRegistry
 from core.loader import load_testcases
 from core.engine import ExecutionEngine
@@ -14,13 +16,32 @@ def _build_observers():
         pass
     return observers
 
-# 加载命令
-cmds = CommandRegistry()
-cmds.load_dir("conf/command")  # 目录下所有 yaml 都会加载
 
-# 初始化 Engine + Observer
-engine = ExecutionEngine(cmds, observers=_build_observers())
+def load_default_commands(cmds: CommandRegistry, base_dir: str = "."):
+    """
+    Backward compatible command directories:
+    - conf/command/** (current)
+    - conf/commands/*.yaml (legacy/new_frame style)
+    """
+    root = Path(base_dir)
+    cmds.load_dir(str(root / "conf" / "command"))
+    cmds.load_dir(str(root / "conf" / "commands"))
 
-# 加载所有 TestCase 并执行
-for tc in load_testcases("conf/testcases", cmds):
-    engine.run(tc)
+
+def run_all(base_dir: str = "."):
+    cmds = CommandRegistry()
+    load_default_commands(cmds, base_dir=base_dir)
+
+    engine = ExecutionEngine(cmds, observers=_build_observers())
+
+    root = Path(base_dir)
+    for tc in load_testcases(str(root / "conf" / "testcases"), cmds):
+        engine.run(tc)
+
+
+def main():
+    run_all(".")
+
+
+if __name__ == "__main__":
+    main()

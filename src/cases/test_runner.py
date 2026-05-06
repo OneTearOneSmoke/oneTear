@@ -7,6 +7,7 @@ from command.shell import ShellCommand
 from command.registry import CommandRegistry
 from core.engine import ExecutionEngine
 from core.loader import load_testcases
+from main import load_default_commands
 from domain.hooks import Hooks
 from domain.step import Step
 from domain.testcase import TestCase as DomainTestCase
@@ -260,3 +261,67 @@ def test_eventually_return_code_uses_redo_command():
     )
     engine = ExecutionEngine(cmd_registry={})
     engine.run(testcase)
+
+
+def test_load_default_commands_supports_both_directories(tmp_path):
+    (tmp_path / "conf" / "command").mkdir(parents=True)
+    (tmp_path / "conf" / "commands").mkdir(parents=True)
+
+    (tmp_path / "conf" / "command" / "a.yaml").write_text(
+        "- name: cmd_a\n"
+        "  type: shell\n"
+        "  cmd: \"echo a\"\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "conf" / "commands" / "b.yaml").write_text(
+        "- name: cmd_b\n"
+        "  type: shell\n"
+        "  cmd: \"echo b\"\n",
+        encoding="utf-8",
+    )
+
+    registry = CommandRegistry()
+    load_default_commands(registry, base_dir=str(tmp_path))
+
+    assert registry.get("cmd_a").name == "cmd_a"
+    assert registry.get("cmd_b").name == "cmd_b"
+
+
+def test_hook_cmd_ref_dict_is_supported(tmp_path):
+    cmd_dir = tmp_path / "commands"
+    case_dir = tmp_path / "cases"
+    cmd_dir.mkdir(parents=True)
+    case_dir.mkdir(parents=True)
+
+    (cmd_dir / "commands.yaml").write_text(
+        "- name: hook_echo\n"
+        "  type: shell\n"
+        "  cmd: \"echo hook start\"\n"
+        "- name: create_file\n"
+        "  type: shell\n"
+        "  cmd: \"touch {{filename}}\"\n"
+        "- name: delete_file\n"
+        "  type: shell\n"
+        "  cmd: \"rm -f {{filename}}\"\n",
+        encoding="utf-8",
+    )
+    (case_dir / "hook_case.yaml").write_text(
+        "name: hook_case\n"
+        "context:\n"
+        "  filename: \"/tmp/hook_case.txt\"\n"
+        "steps:\n"
+        "  - name: create_file\n"
+        "    cmd_ref: create_file\n"
+        "  - name: delete_file\n"
+        "    cmd_ref: delete_file\n"
+        "hooks:\n"
+        "  before:\n"
+        "    - cmd_ref: hook_echo\n",
+        encoding="utf-8",
+    )
+
+    registry = CommandRegistry()
+    registry.load_dir(str(cmd_dir))
+    cases = load_testcases(str(case_dir), registry)
+    engine = ExecutionEngine(cmd_registry=registry)
+    engine.run(cases[0])
