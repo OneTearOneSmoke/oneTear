@@ -3,7 +3,7 @@
 > 版本：v2.0（彻底重构版）  
 > 范围：覆盖 **海量用例管理** 与 **高并发执行框架** 两大子系统的端到端需求。  
 > 关联文档：[`architecture.md`](architecture.md) · 上一版：[`design.md`](design.md)  
-> 分模块设计：[`test-case-management-design.md`](test-case-management-design.md) · [`execution-framework-design.md`](execution-framework-design.md) · [`plugin-system-design.md`](plugin-system-design.md)
+> 分模块设计：[`test-case-management-design.md`](test-case-management-design.md) · [`execution-framework-design.md`](execution-framework-design.md) · [`plugin-system-design.md`](plugin-system-design.md) · [`test-report-management-design.md`](test-report-management-design.md) · [`test-machine-resource-management-design.md`](test-machine-resource-management-design.md)
 
 ---
 
@@ -82,8 +82,9 @@ flowchart LR
 1. **用例管理子系统**：建模、存储、检索、版本、关系、生命周期、权限、审计。
 2. **执行框架子系统**：极简调度内核 + 高性能执行集群，覆盖计划编译、DAG、队列、并发分发、状态机、结果回收、重试、超时、沙箱。
 3. **插件系统**：插件协议、生命周期、注册与发现、能力声明。
-4. **可观测**：执行报告、指标、Trace、告警。
-5. **AI 协作**：LLM 作为评审 / 生成器 / 检索器。
+4. **测试报告管理（TRM）**：结果接入、冷热存储、查询、趋势、基线对比、Flaky 检测、告警与导出。
+5. **测试机器资源管理（TMRM / Test Farm）**：机器/设备注册、健康检查、分配、扩缩容、Quota、计费和维护。
+6. **AI 协作**：LLM 作为评审 / 生成器 / 检索器。
 
 ### 3.2 范围外（v1.0）
 
@@ -266,7 +267,25 @@ flowchart LR
 #### FR-AIC-4 检索
 - 用例库提供 MCP / OpenAPI，LLM 可作为客户端查询、推荐、引用。
 
-### 4.5 可观测（Observability, OBS）
+### 4.5 测试报告管理（Test Report Management, TRM）
+
+- **结果接入**：消费 EXF Result 事件，支持至少 10K events/s，失败可重放、幂等。
+- **多维查询**：按 case / plan / plugin / target / status / 时间 / owner 查询，支持分页与下钻。
+- **冷热分层**：最近 7 天 PG，7~180 天 ClickHouse，180 天后 S3 Parquet；至少保留 12 个月。
+- **趋势与对比**：通过率、失败率、p50/p95 耗时、基线 vs 当前、新增失败/已修复。
+- **Flaky 检测**：最近 50 次中 PASS/FAILED 混合且失败比例在 5%~50%，自动标记。
+- **告警与导出**：Slack / Email / Webhook；HTML / PDF / JUnit / JSON 导出。
+
+### 4.6 测试机器资源管理（Test Machine Resource Management, TMRM）
+
+- **资源类型**：物理机、VM、Browser、Android/iOS、Desktop、Sandbox 槽位。
+- **生命周期**：注册、健康检查、分配、释放、维护、注销、退役。
+- **分配策略**：Best-fit、Spread、Affinity、Anti-affinity、FIFO。
+- **弹性**：基于队列、利用率、计划、历史预测自动扩缩容。
+- **治理**：租户配额、BurstToken、维护窗口、成本 Showback/Chargeback。
+- **多云**：AWS / GCP / Azure + 私有 IDC。
+
+### 4.7 可观测（Observability, OBS）
 
 - 指标：执行数、通过率、P50/P95 用时、按插件 / target 维度。
 - Trace：OpenTelemetry，跨 Master / Worker / Plugin。
@@ -282,6 +301,9 @@ flowchart LR
 | **用例管理 QPS** | 写入 1K QPS、查询 10K QPS、语义检索 100 QPS |
 | **执行并发** | 单集群 ≥ 10K 并发用例；单 Plan 可跨 1K worker；支持 100K+ 待执行队列 |
 | **执行吞吐** | 持续 ≥ 5K 用例 / 分钟（短用例）；峰值 ≥ 10K 用例 / 分钟 |
+| **结果接入** | 单集群 ≥ 10K Result events/s；Flaky 日批 ≤ 10 min |
+| **报告查询** | 摘要 P95 ≤ 500 ms；历史下钻 P95 ≤ 2 s |
+| **机器资源** | 管理 ≥ 10K 机器；分配 P95 ≤ 200 ms；故障 60 s 内摘除 |
 | **延迟** | 调度 P95 ≤ 50 ms；用例分发 P95 ≤ 200 ms；单 Worker 拉取 P95 ≤ 50 ms |
 | **可用性** | 99.9% SLA（Master 3 节点 / 多 AZ） |
 | **扩展性** | 无状态 Worker 水平扩展；存储分库分表 |
@@ -296,6 +318,7 @@ flowchart LR
 
 - **语言分层约束**：管理 / 执行 / 插件是三个独立模块。Python 只适合原型与插件 SDK；生产执行内核必须使用 Rust 或 Go 二选一，核心代码不得把业务逻辑与 Python 绑定。
 - **协议约束**：模块之间只允许通过稳定协议通信（HTTP/gRPC + Protobuf），不共享进程内对象；Rust/Go 内核不得 import Python。
+- **模块隔离**：TCM / EXF / TRM / TMRM / PLG 独立部署；EXF 不直接查询 TRM 库，TMRM 不直接写 EXF 状态。
 - 内核必须保持 < 3000 行 Rust 或 Go，便于审计、静态分析与高性能调度。
 - 用例 ID 在全局唯一（`area.module.behavior` + hash 兜底）。
 - 任何插件的“致命”错误不应拖垮 Master。
@@ -325,4 +348,7 @@ flowchart LR
 - AC-4：编写一个第三方插件 SDK 文档，外部开发者 1 天内可写出可用插件。
 - AC-5：LLM 生成的用例通过 lint + dry-run 后可直接入库并被执行。
 - AC-6：失败的用例能自动回放（replayer 用相同 target + 插件复现）。
+- AC-7：TRM 可在 10K events/s 接入下保持查询与 Flaky 检测 SLA。
+- AC-8：TMRM 可管理 10K+ 机器，分配 P95 ≤ 200 ms，失败机器 60 s 内摘除。
+- AC-9：TRM/TMRM 可独立扩缩容，不影响 EXF/TCM。
 

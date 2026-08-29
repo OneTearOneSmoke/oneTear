@@ -11,6 +11,8 @@
 | 用例管理（TCM） | [`test-case-management-design.md`](test-case-management-design.md) | 数据模型、存储、索引、版本、权限、AI 协作 |
 | 执行框架（EXF） | [`execution-framework-design.md`](execution-framework-design.md) | 调度、并发模型、高性能、状态机、分布式、Rust/Go 演进 |
 | 插件系统（PLG） | [`plugin-system-design.md`](plugin-system-design.md) | 插件协议、Manifest、gRPC、Sandbox、SDK |
+| 测试报告管理（TRM） | [`test-report-management-design.md`](test-report-management-design.md) | 结果接入、冷热分层、查询、对比、Flaky、告警、导出 |
+| 测试机器资源管理（TMRM） | [`test-machine-resource-management-design.md`](test-machine-resource-management-design.md) | 机器注册、分配、扩缩容、Quota、计费、健康 |
 
 ## 1. 顶层架构图
 
@@ -19,11 +21,18 @@ flowchart TB
   classDef tcm fill:#fef3c7,stroke:#92400e
   classDef exf fill:#dbeafe,stroke:#1e40af
   classDef plg fill:#dcfce7,stroke:#166534
+  classDef trm fill:#fce7f3,stroke:#9d174d
+  classDef tmrm fill:#ede9fe,stroke:#5b21b6
   classDef ext fill:#f3f4f6,stroke:#6b7280
   TCM[用例管理 TCM<br/>Go]:::tcm
   EXF[执行框架 EXF<br/>Rust]:::exf
   PLG[插件系统 PLG<br/>多语言]:::plg
+  TRM[测试报告 TRM<br/>Go]:::trm
+  TMRM[机器资源 TMRM<br/>Go]:::tmrm
   TCM -- "查询/订阅" --> EXF
+  EXF -- "Result 事件" --> TRM
+  EXF -- "分配/释放" --> TMRM
+  TMRM -- "心跳/探针" --> EXF
   EXF -- "gRPC 调用" --> PLG
   PLG -- "驱动" --> DB[(数据库)]
   PLG -- "驱动" --> Web[浏览器/桌面]
@@ -31,6 +40,8 @@ flowchart TB
   PLG -- "驱动" --> Cloud[云原生]
   User[测试工程师/AI] --> TCM
   CI[CI / Webhook] --> EXF
+  TRM --> User
+  TMRM --> User
 ```
 
 
@@ -79,6 +90,10 @@ flowchart LR
 | 边界 | 接口 / 协议 | 备注 |
 | --- | --- | --- |
 | TCM → EXF | `GET /v1/cases?expr=...` `GET /v1/cases/{id}@{ver}` `POST /v1/plans` | 只读 + 计划创建；执行结果回写结果库 |
+| EXF → TRM | NATS `result.events` / gRPC `Result` 流 | TRM 负责聚合、查询、Flaky、告警 |
+| EXF → TMRM | gRPC `Allocate / Release / Heartbeat` | EXF 拉取机器、回报心跳 |
+| TMRM → PLG | 机器元数据 + 凭据 | 通过 target endpoint 注入 |
+| TRM → TCM | `case.tags` 回写 | Flaky 标记回写（需 RBAC） |
 | EXF → PLG | gRPC `Plugin` 服务（Manifest / Action / Assert） | 内核不解释业务字段 |
 | EXF → OBS | OTLP + Prometheus | 由 EXF 主导 |
 | TCM → AIC | MCP Server / OpenAPI | LLM 客户端访问 |
@@ -114,6 +129,8 @@ flowchart LR
 | 用例管理 (TCM) | **Go** | HTTP / SQL 生态成熟；CRUD + 索引场景不需要极低延迟；招人容易 |
 | 执行框架 (EXF) | **Rust** | 调度热路径要无 GC、零拷贝、单机万级协程；Tokio/async-std 提供高并发原语 |
 | 插件系统 (PLG) | **多语言** | 协议是 gRPC/Protobuf，任意语言实现；提供 Go/Rust/Python/Java SDK |
+| 测试报告管理 (TRM) | **Go**（接入 Rust） | 摄取侧 Rust（高吞吐），查询 / API / Flaky / 告警 Go |
+| 测试机器资源 (TMRM) | **Go** | 状态机 + 云 SDK 生态成熟；eBPF 健康探针可用 Go bindings |
 | CLI / 工具链 | **Python** | 用户粘性高；试错成本低；与 LLM 生态一致 |
 | 性能插件 (Web/DB) | **Rust/Go** | 复用 tokio/数据库驱动，性能更好 |
 
@@ -156,10 +173,15 @@ flowchart TB
     W2[Worker N2]
     WN[Worker Nn]
   end
-  subgraph Data["数据面"]
+  subgraph Data["数据面 + 数据服务"]
     PG[(PostgreSQL<br/>主从)]
+    CH[(ClickHouse)]
     NATS[NATS JetStream]
     S3[(S3 / MinIO)]
+  end
+  subgraph Subs["其他子系统"]
+    TRM[TRM<br/>Go + Rust ingest]
+    TMRM[TMRM<br/>Go]
   end
   subgraph Obs["可观测"]
     Prom[Prometheus]
@@ -169,10 +191,19 @@ flowchart TB
   W1 --> NATS
   W1 --> PG
   W1 --> S3
+  EXF -- Result 事件 --> NATS
+  NATS --> TRM
+  TRM --> PG
+  TRM --> CH
+  TRM --> S3
+  EXF <-- 分配/心跳 --> TMRM
+  TMRM --> PG
   M1 --> Prom
   M1 --> Tempo
   CI[CI] --> M1
   Client[API/CLI] --> M1
+  Client -. 报告查询 .-> TRM
+  Client -. 资源管理 .-> TMRM
 ```
 
 
