@@ -283,3 +283,25 @@ steps:
 > * 数据库专用测试 DSL
 > * 运维验证平台执行内核
 > * Chaos + 验证一体化框架
+
+
+---
+
+## 子包：`src/aitest/` —— AI 时代测试框架与用例管理
+
+与原有 `OneTear`（运维/中间件集成测试）并存的独立子包。设计文档见
+[`docs/ai-test/design.md`](docs/ai-test/design.md)，子包说明见
+[`src/aitest/README.md`](src/aitest/README.md)。
+
+最小体验：
+
+```bash
+cd src
+python3 -m aitest run --suite cases --junit report.xml --json-report report.json
+```
+
+提供：
+
+- 用例即 YAML/JSON 数据，可矩阵展开、标签检索、套件 diff。
+- 8 类命令、11 类断言、4 类观察者、2 类 LLM Provider，全部注册式可扩展。
+- 失败自动回放（replays/）→ 可派生新用例，形成 human-in-the-loop 闭环。

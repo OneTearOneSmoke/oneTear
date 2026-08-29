@@ -1,0 +1,13 @@
+id: ai.ast.equivalent_rewrite
+name: 换行/重排后的代码应该 AST 等价
+tags: [ast, refactor]
+source: human
+asserts:
+  - ast_struct:
+      a: |
+        def f(x):
+            return x + 1
+      b: |
+        def f(x):
+            # 加了点注释
+            return x + 1

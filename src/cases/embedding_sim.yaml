@@ -1,0 +1,14 @@
+id: ai.embedding.semantic_rewrite
+name: 同义改写应该与原文相似
+tags: [embedding, semantic]
+source: human
+description: 用 bag-of-words 相似度做轻量断言
+params:
+  pairs:
+    - { a: "今天天气真好", b: "今天的天气很棒" }
+    - { a: "机器学习很难", b: "机器学习不容易" }
+asserts:
+  - embedding_sim:
+      threshold: 0.3
+      a: "{{ params.pairs.a }}"
+      b: "{{ params.pairs.b }}"

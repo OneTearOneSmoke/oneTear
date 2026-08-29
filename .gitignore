@@ -208,3 +208,8 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# aitest 运行产物
+src/report.json
+src/report.xml
+src/replays/

@@ -1,0 +1,25 @@
+id: ai.sort.correctness
+name: AI 排序函数正确性（bubble/quick）
+tags: [ai-generated, sort, smoke]
+owner: ai-eval
+source: human
+description: 验证 bubble / quick 对多种输入的输出等于 sorted(input)
+params:
+  fn: [bubble, quick]
+  input:
+    - [3, 1, 2]
+    - [5, 5, 1, 2]
+    - []
+    - [1]
+run:
+  cmd: python.eval
+  args:
+    import: aitest_demo.sort
+    call: "{{ params.fn }}"
+    with: "{{ params.input }}"
+asserts:
+  - eq:
+      value: "{{ run.python.eval.result }}"
+      expect: "{{ params.input | sorted }}"
+record:
+  on_failure: true

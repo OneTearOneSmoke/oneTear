@@ -1,0 +1,16 @@
+id: ai.llm.judge_echo
+name: LLM Judge 应当能从 echo provider 中提取 score
+tags: [llm, judge]
+source: ai-generated
+description: 用 echo + 自定义 rubric 验证 LLMJudge 的 score 提取
+run:
+  cmd: llm.query
+  args:
+    provider: echo
+    prompt: "code under test: a trivial sort"
+asserts:
+  - llm_judge:
+      provider: echo
+      prompt: "code under test: a trivial sort"
+      rubric: 'Reply ONLY a JSON: {"score": 0.9, "reason": "ok"}'
+      threshold: 0.5

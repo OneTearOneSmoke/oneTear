@@ -1,0 +1,11 @@
+id: ops.shell.echo
+name: shell.run 基本冒烟
+tags: [ops, smoke]
+run:
+  cmd: shell.run
+  args:
+    cmd: "echo hello-aitest"
+asserts:
+  - contains:
+      value: "{{ run.shell.run.stdout }}"
+      substr: "hello-aitest"

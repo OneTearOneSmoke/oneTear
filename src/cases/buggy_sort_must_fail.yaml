@@ -1,0 +1,19 @@
+id: ai.sort.buggy_must_fail
+name: buggy_sort 应该被检测到不通过
+tags: [ai-generated, sort, must-fail]
+source: human
+description: 故意用 buggy_sort，验证框架能抓出
+params:
+  input: [[3, 1, 2], [5, 5, 1, 2]]
+run:
+  cmd: python.eval
+  args:
+    import: aitest_demo.sort
+    call: buggy_sort
+    with: "{{ params.input }}"
+asserts:
+  - eq:
+      value: "{{ run.python.eval.result }}"
+      expect: "{{ params.input | sorted }}"
+record:
+  on_failure: true

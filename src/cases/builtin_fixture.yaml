@@ -1,0 +1,18 @@
+id: ops.builtin.tmp_and_seed
+name: builtin 夹具：make_tmp + seed_rng
+tags: [builtin, fixture]
+fixture:
+  setup:
+    - cmd: builtin.make_tmp
+    - cmd: builtin.seed_rng
+      args: { seed: 42 }
+  teardown:
+    - cmd: builtin.clean_tmp
+run:
+  cmd: shell.run
+  args:
+    cmd: "echo tmp={{ meta.tmp }} seed={{ meta.rng_seeded }}"
+asserts:
+  - contains:
+      value: "{{ run.shell.run.stdout }}"
+      substr: "seed=True"
