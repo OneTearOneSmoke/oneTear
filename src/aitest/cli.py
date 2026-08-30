@@ -231,6 +231,105 @@ def cmd_new(args) -> int:
     return 0
 
 
+# ──────────── TRM report handlers ────────────
+def cmd_report_flaky(args) -> int:
+    from .core.store import ResultStore
+    from .trm.flaky import FlakyDetector, FlakyConfig
+
+    store = ResultStore(args.store)
+    try:
+        det = FlakyDetector(min_ratio=args.min_ratio, max_ratio=args.max_ratio)
+        result = det.run(
+            store=store,
+            plan_id=args.plan,
+            config=FlakyConfig(
+                window=args.window,
+                min_ratio=args.min_ratio,
+                max_ratio=args.max_ratio,
+            ),
+        )
+    finally:
+        store.close()
+
+    if args.json:
+        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+        return 0
+    print(f"[report:flaky] {result.summary}")
+    for it in result.data["items"]:
+        marker = "FLAKY"
+        print(
+            f"  {marker}  {it['case_id']:<40s} "
+            f"fail={it['failures']}/{it['window']} ({it['fail_ratio']*100:.1f}%) "
+            f"last={it['last_status']}"
+        )
+    for r in result.recommendations:
+        print(f"  -> {r}")
+    return 0
+
+
+def cmd_report_baseline(args) -> int:
+    from .core.store import ResultStore
+    from .trm.baseline import BaselineComparator
+
+    store = ResultStore(args.store)
+    try:
+        comp = BaselineComparator()
+        result = comp.run(
+            store=store,
+            baseline_plan_id=args.baseline,
+            current_plan_id=args.current,
+        )
+    finally:
+        store.close()
+
+    if args.json:
+        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+        return 0
+    print(f"[report:baseline] {result.summary}")
+    counts = result.data["counts"]
+    print(
+        f"  new_failure={counts.get('NEW_FAILURE',0)} "
+        f"fixed={counts.get('FIXED',0)} "
+        f"regression={counts.get('REGRESSION',0)} "
+        f"still_fail={counts.get('STILL_FAIL',0)} "
+        f"still_pass={counts.get('STILL_PASS',0)} "
+        f"new_pass={counts.get('NEW_PASS',0)} "
+        f"missing={counts.get('MISSING',0)}"
+    )
+    for it in result.data["items"]:
+        if it["kind"] in ("NEW_FAILURE", "FIXED", "REGRESSION", "MISSING"):
+            print(
+                f"  {it['kind']:<12s} {it['case_id']:<40s} "
+                f"{str(it['baseline_status']):<8s} -> {str(it['current_status'])}"
+            )
+    return 0
+
+
+def cmd_report_trend(args) -> int:
+    from .core.store import ResultStore
+    from .trm.trend import TrendAnalyzer
+
+    store = ResultStore(args.store)
+    try:
+        ana = TrendAnalyzer()
+        result = ana.run(store=store, case_id=args.case, window=args.window)
+    finally:
+        store.close()
+
+    if args.json:
+        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+        return 0
+    print(f"[report:trend] {result.summary}")
+    d = result.data
+    print(
+        f"  window={d['window']} pass_rate={d['pass_rate']:.2%} "
+        f"p50={d['duration_p50_ms']}ms p95={d['duration_p95_ms']}ms"
+    )
+    for r in result.recommendations:
+        print(f"  -> {r}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="aitest", description="AI 时代极简测试框架")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -296,6 +395,33 @@ def build_parser() -> argparse.ArgumentParser:
     pr2.add_argument("--limit", type=int, default=20)
     pr2.add_argument("--summary", action="store_true", help="show summary only")
     pr2.set_defaults(func=cmd_results)
+
+    # ──────── TRM: report 子命令（flaky / baseline / trend）────────
+    preport = sub.add_parser("report", help="TRM 高阶分析：flaky / baseline / trend")
+    preport_sub = preport.add_subparsers(dest="report_cmd", required=True)
+
+    prf = preport_sub.add_parser("flaky", help="列出 flaky case")
+    prf.add_argument("--store", default="aitest-results.db")
+    prf.add_argument("--plan", help="按 plan_id 过滤")
+    prf.add_argument("--window", type=int, default=50)
+    prf.add_argument("--min-ratio", type=float, default=0.05)
+    prf.add_argument("--max-ratio", type=float, default=0.50)
+    prf.add_argument("--json", action="store_true", help="输出 JSON")
+    prf.set_defaults(func=cmd_report_flaky)
+
+    prb = preport_sub.add_parser("baseline", help="对比基线 vs 当前 run")
+    prb.add_argument("--store", default="aitest-results.db")
+    prb.add_argument("--baseline", required=True, help="基线 plan_id")
+    prb.add_argument("--current", required=True, help="当前 plan_id")
+    prb.add_argument("--json", action="store_true")
+    prb.set_defaults(func=cmd_report_baseline)
+
+    prt = preport_sub.add_parser("trend", help="单 case 趋势")
+    prt.add_argument("--store", default="aitest-results.db")
+    prt.add_argument("--case", required=True)
+    prt.add_argument("--window", type=int, default=50)
+    prt.add_argument("--json", action="store_true")
+    prt.set_defaults(func=cmd_report_trend)
 
     return p
 

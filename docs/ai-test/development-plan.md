@@ -442,6 +442,70 @@ flowchart TD
 
 ---
 
+## v0.5 γ 完成情况（2026-08-30）
+
+> 接续 v0.5 β：把 TRM (Test Report Management) 子系统的 Python 原型落地，作为独立模块边界。
+
+### 交付清单
+
+- ✅ **`src/aitest/trm/` 新模块**：从 EXF 解耦的高阶分析层
+  - `analyzer.py` — `Analyzer` 抽象 + `AnalyzerRegistry`，方便 v1.0 接入 ClickHouse / Postgres 适配器
+  - `flaky.py` — 滑动窗口 N=50，失败比例 ∈ [5%, 50%] → 标记 flaky，输出 `FlakyCase` 数据类
+  - `baseline.py` — 两 run 之间 7 类 diff（NEW_FAILURE / FIXED / REGRESSION / STILL_FAIL / STILL_PASS / NEW_PASS / MISSING）
+  - `trend.py` — 单 case 状态时间线 + pass_rate + duration p50/p95 + 长尾告警
+  - `store.py` — EXF store 的轻包装（dict-of-rows），降低跨模块耦合
+- ✅ **CLI 子命令 `aitest report`**：
+  - `report flaky --store X.db --plan --window --min-ratio --max-ratio [--json]`
+  - `report baseline --store X.db --baseline planA --current planB [--json]`
+  - `report trend --store X.db --case X --window 50 [--json]`
+- ✅ **单测**：18 新增 `test_trm.py`，全部 84/84 通过（66 旧 + 18 TRM）
+- ✅ **架构边界**：TRM 只读 EXF store，互不依赖；未来切换 ClickHouse 只换 Adapter
+
+### 架构演进
+
+```
+                ┌────────────────────────────────┐
+                │ CLI: aitest report {flaky,…}   │
+                └──────────────┬─────────────────┘
+                               ▼
+       ┌──────────────────────────────────────────┐
+       │  TRM  (src/aitest/trm/)                  │
+       │  ─ Analyzer 协议 / AnalyzerRegistry      │
+       │  ─ FlakyDetector / BaselineComparator   │
+       │  ─ TrendAnalyzer                         │
+       │  ─ Store Adapter (当前: SQLite)          │
+       └─────────────────┬────────────────────────┘
+                         │  只读
+                         ▼
+       ┌──────────────────────────────────────────┐
+       │  EXF Result-Store (SQLite)               │
+       └──────────────────────────────────────────┘
+                         ▲ 写入
+                         │
+       ┌──────────────────────────────────────────┐
+       │  EXF Runner / WorkerPool                 │
+       └──────────────────────────────────────────┘
+```
+
+### 关键决策记录（v0.5 γ）
+
+- **TRM 解耦 EXF**：通过 `Analyzer` 协议 + Adapter store 接口，保证后续把 store 换成 ClickHouse / Postgres 时只需新增 Adapter
+- **`run()` 接受 store 为位置参数**：避免 keyword-only 给调用方制造噪声
+- **基线对比分 7 类**：覆盖"新增 / 消失 / 修复 / 回归"四个方向，避免仅区分 pass/fail
+- **flaky 区间用闭区间**：5% 和 50% 都算 flaky（5/100 是工程上常见的边缘 case）
+- **trend 自动长尾告警**：p95/p50 > 3x 触发建议，覆盖性能退化场景
+
+### 待办（v0.5 δ 候选）
+
+- ⬜ TMRM (Test Machine Resource Management) Python 原型
+- ⬜ TRM → ClickHouse Adapter 预研
+- ⬜ `report export` 子命令（JUnit XML / HTML / PDF）
+- ⬜ Alert 规则引擎（按 summary 阈值告警）
+- ⬜ `--plan` 跑批编排（一次跑多 suite，v0.5 β 已列）
+- ⬜ gRPC 插件协议骨架（v0.8 预研）
+
+---
+
 ## 16. 文档与培训
 
 | 阶段 | 文档 | 培训 |
