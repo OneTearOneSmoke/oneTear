@@ -330,6 +330,190 @@ def cmd_report_trend(args) -> int:
     return 0
 
 
+# ──────────── TMRM farm handlers ────────────
+def _parse_labels(pairs):
+    out = {}
+    for kv in pairs or []:
+        if "=" not in kv:
+            raise SystemExit(f"--label expects key=value, got {kv!r}")
+        k, v = kv.split("=", 1)
+        out[k] = v
+    return out
+
+
+def cmd_farm_ls(args) -> int:
+    from .tmrm.machine import MachineStatus, MachineType
+    from .tmrm.store import FarmStore
+    store = FarmStore(args.store)
+    try:
+        ms = MachineStatus(args.status) if args.status else None
+        mt = MachineType(args.type) if args.type else None
+        rows = store.list_machines(status=ms, machine_type=mt, pool_id=args.pool)
+    finally:
+        store.close()
+    if args.json:
+        print(json.dumps([m.to_dict() for m in rows], ensure_ascii=False, indent=2))
+        return 0
+    if not rows:
+        print("[farm:ls] 0 machines")
+        return 0
+    print(f"[farm:ls] {len(rows)} machines")
+    for m in rows:
+        print(
+            f"  {m.id:<40} {m.name:<24} {m.type.value:<10} "
+            f"{m.status.value:<12} pool={m.pool_id or '-':<8} provider={m.provider or '-'}"
+        )
+    return 0
+
+
+def cmd_farm_register(args) -> int:
+    from .tmrm.machine import Machine, MachineType
+    from .tmrm.store import FarmStore
+    m = Machine(
+        id=args.id, name=args.name, type=MachineType(args.type),
+        provider=args.provider, region=args.region, zone=args.zone,
+        image=args.image, pool_id=args.pool_id, labels=_parse_labels(args.label),
+    )
+    store = FarmStore(args.store)
+    try:
+        store.upsert_machine(m)
+    finally:
+        store.close()
+    print(f"[farm:register] ok {m.id} {m.name} ({m.type.value})")
+    return 0
+
+
+def cmd_farm_acquire(args) -> int:
+    from .tmrm.machine import MachineType, Selector
+    from .tmrm.allocator import Allocator, AllocateRequest, AllocationError
+    from .tmrm.store import FarmStore
+    sel = Selector(
+        type=MachineType(args.type) if args.type else None,
+        pool_id=args.pool_id, provider=args.provider, region=args.region,
+        labels=_parse_labels(args.label),
+    )
+    req = AllocateRequest(
+        owner=args.owner, selector=sel,
+        plan_id=args.plan, task_id=args.task_id, ttl_seconds=args.ttl,
+    )
+    store = FarmStore(args.store)
+    try:
+        a = Allocator(store)
+        sess = a.acquire(req)
+    except AllocationError as e:
+        store.close()
+        print(f"[farm:acquire] FAIL {e}")
+        return 2
+    finally:
+        store.close()
+    if args.json:
+        print(json.dumps(sess.to_dict(), ensure_ascii=False, indent=2))
+        return 0
+    print(
+        f"[farm:acquire] ok session={sess.id} machine={sess.machine_id} "
+        f"owner={sess.owner} ttl={sess.ttl_seconds}"
+    )
+    return 0
+
+
+def cmd_farm_release(args) -> int:
+    from .tmrm.allocator import Allocator, AllocationError
+    from .tmrm.store import FarmStore
+    store = FarmStore(args.store)
+    try:
+        a = Allocator(store)
+        sess = a.release(args.session)
+    except AllocationError as e:
+        store.close()
+        print(f"[farm:release] FAIL {e}")
+        return 2
+    finally:
+        store.close()
+    if args.json:
+        print(json.dumps(sess.to_dict(), ensure_ascii=False, indent=2))
+        return 0
+    print(
+        f"[farm:release] ok session={sess.id} machine={sess.machine_id} "
+        f"released_at={sess.released_at:.0f}"
+    )
+    return 0
+
+
+def cmd_farm_heartbeat(args) -> int:
+    from .tmrm.health import HealthChecker
+    from .tmrm.store import FarmStore
+    store = FarmStore(args.store)
+    try:
+        hc = HealthChecker(store)
+        m = hc.heartbeat(args.machine)
+    finally:
+        store.close()
+    print(f"[farm:heartbeat] ok {m.id} last_heartbeat={m.last_heartbeat:.0f}")
+    return 0
+
+
+def cmd_farm_health_check(args) -> int:
+    from .tmrm.health import HealthChecker
+    from .tmrm.store import FarmStore
+    store = FarmStore(args.store)
+    try:
+        hc = HealthChecker(store)
+        rec = hc.check_one(args.machine)
+    finally:
+        store.close()
+    if args.json:
+        print(json.dumps(rec.to_dict(), ensure_ascii=False, indent=2))
+        return 0
+    print(
+        f"[farm:health-check] {args.machine} status={rec.status.value} "
+        f"latency={rec.latency_ms}ms error={rec.error!r}"
+    )
+    return 0
+
+
+def cmd_farm_sweep(args) -> int:
+    from .tmrm.health import HealthChecker
+    from .tmrm.store import FarmStore
+    store = FarmStore(args.store)
+    try:
+        hc = HealthChecker(store)
+        recs = hc.sweep()
+    finally:
+        store.close()
+    if args.json:
+        print(json.dumps([r.to_dict() for r in recs], ensure_ascii=False, indent=2))
+        return 0
+    bad = [r for r in recs if r.status.value != "ok"]
+    print(f"[farm:sweep] {len(recs)} checked, {len(bad)} unhealthy/degraded")
+    for r in bad:
+        print(f"  {r.machine_id:<40} {r.status.value:<10} {r.error}")
+    return 0
+
+
+def cmd_farm_sessions(args) -> int:
+    from .tmrm.session import SessionStatus
+    from .tmrm.store import FarmStore
+    store = FarmStore(args.store)
+    try:
+        ss = SessionStatus(args.status) if args.status else None
+        rows = store.list_sessions(owner=args.owner, status=ss)
+    finally:
+        store.close()
+    if args.json:
+        print(json.dumps([s.to_dict() for s in rows], ensure_ascii=False, indent=2))
+        return 0
+    if not rows:
+        print("[farm:sessions] 0")
+        return 0
+    print(f"[farm:sessions] {len(rows)}")
+    for s in rows:
+        print(
+            f"  {s.id:<40} machine={s.machine_id:<24} owner={s.owner:<16} "
+            f"status={s.status.value:<10} plan={s.plan_id or '-':<8}"
+        )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="aitest", description="AI 时代极简测试框架")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -422,6 +606,74 @@ def build_parser() -> argparse.ArgumentParser:
     prt.add_argument("--window", type=int, default=50)
     prt.add_argument("--json", action="store_true")
     prt.set_defaults(func=cmd_report_trend)
+
+    # ──────────── TMRM: farm 子命令（机器注册 / 分配 / 健康） ────────────
+    pfm = sub.add_parser("farm", help="TMRM 机器 / 资源池 / 分配")
+    pfm_sub = pfm.add_subparsers(dest="farm_cmd", required=True)
+
+    pfml = pfm_sub.add_parser("ls", help="列出机器")
+    pfml.add_argument("--store", default="aitest-farm.db")
+    pfml.add_argument("--status", choices=["available", "allocated", "maintenance", "retired", "unhealthy"])
+    pfml.add_argument("--type", choices=["host", "browser", "mobile", "desktop", "sandbox"])
+    pfml.add_argument("--pool", help="按 pool_id 过滤")
+    pfml.add_argument("--json", action="store_true")
+    pfml.set_defaults(func=cmd_farm_ls)
+
+    pfmr = pfm_sub.add_parser("register", help="注册一台机器")
+    pfmr.add_argument("--store", default="aitest-farm.db")
+    pfmr.add_argument("--id", required=True)
+    pfmr.add_argument("--name", required=True)
+    pfmr.add_argument("--type", required=True, choices=["host", "browser", "mobile", "desktop", "sandbox"])
+    pfmr.add_argument("--provider")
+    pfmr.add_argument("--region")
+    pfmr.add_argument("--zone")
+    pfmr.add_argument("--image")
+    pfmr.add_argument("--pool", dest="pool_id")
+    pfmr.add_argument("--label", action="append", default=[], help="key=value (可重复)")
+    pfmr.set_defaults(func=cmd_farm_register)
+
+    pfma = pfm_sub.add_parser("acquire", help="分配一台机器")
+    pfma.add_argument("--store", default="aitest-farm.db")
+    pfma.add_argument("--owner", required=True, help="团队 / 用户")
+    pfma.add_argument("--type", choices=["host", "browser", "mobile", "desktop", "sandbox"])
+    pfma.add_argument("--pool", dest="pool_id")
+    pfma.add_argument("--provider")
+    pfma.add_argument("--region")
+    pfma.add_argument("--label", action="append", default=[], help="key=value")
+    pfma.add_argument("--plan", help="plan_id")
+    pfma.add_argument("--task", dest="task_id", help="task_id")
+    pfma.add_argument("--ttl", type=float, help="TTL (秒)")
+    pfma.add_argument("--json", action="store_true")
+    pfma.set_defaults(func=cmd_farm_acquire)
+
+    pfmr = pfm_sub.add_parser("release", help="释放一台机器")
+    pfmr.add_argument("--store", default="aitest-farm.db")
+    pfmr.add_argument("--session", required=True)
+    pfmr.add_argument("--json", action="store_true")
+    pfmr.set_defaults(func=cmd_farm_release)
+
+    pfmh = pfm_sub.add_parser("heartbeat", help="心跳更新")
+    pfmh.add_argument("--store", default="aitest-farm.db")
+    pfmh.add_argument("--machine", required=True)
+    pfmh.set_defaults(func=cmd_farm_heartbeat)
+
+    pfmc = pfm_sub.add_parser("health-check", help="对一台机器跑健康检查")
+    pfmc.add_argument("--store", default="aitest-farm.db")
+    pfmc.add_argument("--machine", required=True)
+    pfmc.add_argument("--json", action="store_true")
+    pfmc.set_defaults(func=cmd_farm_health_check)
+
+    pfms = pfm_sub.add_parser("sweep", help="扫所有机器，更新健康状态")
+    pfms.add_argument("--store", default="aitest-farm.db")
+    pfms.add_argument("--json", action="store_true")
+    pfms.set_defaults(func=cmd_farm_sweep)
+
+    pfmt = pfm_sub.add_parser("sessions", help="列出 sessions")
+    pfmt.add_argument("--store", default="aitest-farm.db")
+    pfmt.add_argument("--owner")
+    pfmt.add_argument("--status", choices=["acquired", "released", "expired", "failed"])
+    pfmt.add_argument("--json", action="store_true")
+    pfmt.set_defaults(func=cmd_farm_sessions)
 
     return p
 

@@ -506,6 +506,72 @@ flowchart TD
 
 ---
 
+## v0.5 δ 完成情况（2026-08-30）
+
+> 接续 v0.5 γ：把 TMRM (Test Machine Resource Management) 子系统的 Python 原型落地。
+
+### 交付清单
+
+- ✅ **`src/aitest/tmrm/` 新模块**：独立 farm registry
+  - `machine.py` — `Machine` / `MachineStatus` / `MachineType` / `Selector`（labels AND 关系）
+  - `pool.py` — `Pool`（机器池 + selectors 自动注册）
+  - `session.py` — `Session` 生命周期（含 TTL/expired 检查）
+  - `store.py` — SQLite 注册表（machines / pools / sessions / health_records 四张表）
+  - `quota.py` — `Quota` / `QuotaPolicy`（按 team × pool 维度）
+  - `allocator.py` — `Allocator.acquire/release` + 配额检查 + NoMatch 异常
+  - `health.py` — `HealthChecker` + `HealthRecord` + 默认探针（heartbeat stale 检测）
+- ✅ **CLI 子命令 `aitest farm`**：
+  - `farm ls [--status] [--type] [--pool]` / `--json`
+  - `farm register --id --name --type --provider --region --pool --label k=v`
+  - `farm acquire --owner [--type] [--pool] [--label...] [--plan] [--task] [--ttl]`
+  - `farm release --session`
+  - `farm heartbeat --machine`
+  - `farm health-check --machine`
+  - `farm sweep` — 扫所有机器
+  - `farm sessions [--owner] [--status]`
+- ✅ **单测**：19 新增 `test_tmrm.py`，全部 103/103 通过（66 旧 + 18 TRM + 19 TMRM）
+- ✅ **E2E 验证**：register → acquire → sessions → release → heartbeat → sweep 全链路 OK
+
+### 架构演进
+
+```
+                ┌──────────────────────────────────────┐
+                │ CLI: aitest farm {ls, register, ...} │
+                └────────────────┬─────────────────────┘
+                                 ▼
+       ┌────────────────────────────────────────────────┐
+       │  TMRM  (src/aitest/tmrm/)                      │
+       │  ─ Allocator  (acquire / release)              │
+       │  ─ HealthChecker  (heartbeat / sweep)          │
+       │  ─ QuotaPolicy  (team × pool 维度)             │
+       │  ─ FarmStore  (SQLite 当前)                    │
+       └────────────────┬───────────────────────────────┘
+                        │  机器列表 → 调度
+                        ▼
+       ┌────────────────────────────────────────────────┐
+       │  EXF Runner / WorkerPool                       │
+       │  (调度时优先消耗 TMRM 已分配的机器)             │
+       └────────────────────────────────────────────────┘
+```
+
+### 关键决策记录（v0.5 δ）
+
+- **Selector 留空即非法**：`Allocator.acquire` 拒绝空 selector，避免误扫所有机器
+- **acquire 是同步 + 强一致**：成功 = 机器状态 + session 两件事都落 SQLite（先机器、后 session）
+- **quota 维度仅在 pool_id 存在时生效**：未配置 = 不限，避免误伤 ad-hoc 任务
+- **health 默认探针用 heartbeat age**：原型阶段不强依赖 ssh / docker；真实环境替换 Probe 实现即可
+- **`farm sweep` 不强制 RETIRED**：退役机器直接过滤掉，避免被新检查反复标记
+
+### 待办（v0.5 ε 候选）
+
+- ⬜ TMRM ↔ EXF 集成：`farm acquire` 直接给 WorkerPool 喂机器
+- ⬜ 真实 Probe（ssh / http / docker）
+- ⬜ 多 pool 嵌套 selector
+- ⬜ Auto-scale 触发器（基于 pending sessions）
+- ⬜ 计费 & 维护窗口（设计文档已写，等 v1.0）
+
+---
+
 ## 16. 文档与培训
 
 | 阶段 | 文档 | 培训 |
