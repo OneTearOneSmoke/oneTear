@@ -87,6 +87,40 @@ def cmd_run(args) -> int:
                 retry=RetryPolicy(max_attempts=1),
             )
             tasks.append(t)
+        # v0.5 ζ: TMRM 集成（可选）—— acquire N 台机器，run 后全部 release
+        farm_sessions = []
+        farm_store = None
+        if getattr(args, "farm", None):
+            from .tmrm.allocator import Allocator, AllocateRequest, AllocationError
+            from .tmrm.machine import Selector, MachineType
+            from .tmrm.store import FarmStore
+            farm_store = FarmStore(args.farm)
+            allocator = Allocator(farm_store)
+            farm_sel = Selector(
+                type=MachineType(args.farm_type) if getattr(args, "farm_type", None) else None,
+            )
+            for slot in range(concurrency):
+                try:
+                    sess = allocator.acquire(AllocateRequest(
+                        owner=getattr(args, "farm_owner", "anon") or "anon",
+                        selector=farm_sel,
+                        plan_id="run-" + str(uuid.uuid4()),
+                    ))
+                    farm_sessions.append(sess)
+                    print(f"[farm] acquired slot={slot} session={sess.id} machine={sess.machine_id}")
+                except AllocationError as e:
+                    print(f"[farm] FAIL acquire slot={slot}: {e}")
+                    # 释放已分配的
+                    for s in farm_sessions:
+                        try:
+                            allocator.release(s.id)
+                        except Exception:  # noqa: BLE001
+                            pass
+                    farm_store.close()
+                    if store is not None:
+                        store.close()
+                    return 2
+
         pool = WorkerPool(max_workers=concurrency, store=store)
         results_raw = pool.run(tasks)
         # 转成 Runner-style Result（保留 observers 调用）
@@ -102,6 +136,16 @@ def cmd_run(args) -> int:
                 ok=r.get("ok", False), status=r.get("status", "ERROR"),
                 ctx=ctx, error=Exception(r["error_message"]) if r.get("error_message") else None,
             ))
+        if farm_sessions:
+            from .tmrm.allocator import Allocator
+            allocator2 = Allocator(farm_store)
+            for s in farm_sessions:
+                try:
+                    allocator2.release(s.id)
+                    print(f"[farm] released session={s.id} machine={s.machine_id}")
+                except Exception as e:  # noqa: BLE001
+                    print(f"[farm] release fail session={s.id}: {e}")
+            farm_store.close()
         if store is not None:
             store.close()
     else:
@@ -639,6 +683,12 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--recorder", help="replay dir")
     pr.add_argument("--store", help="Result-Store SQLite path (persist every result)")
     pr.add_argument("--dryrun", action="store_true", help="dryrun: use mock plugin target (no real side-effect)")
+    pr.add_argument("--farm", help="TMRM farm SQLite path (acquire machines from Test Farm)")
+    pr.add_argument("--farm-type", dest="farm_type",
+                    choices=["host", "browser", "mobile", "desktop", "sandbox"],
+                    help="TMRM 申请的机器类型")
+    pr.add_argument("--farm-owner", dest="farm_owner", default="anon",
+                    help="TMRM 申请机器的 owner (team / user)")
     pr.set_defaults(func=cmd_run)
 
     pl = sub.add_parser("ls", help="list cases")

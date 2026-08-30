@@ -631,6 +631,60 @@ flowchart TD
 
 ---
 
+## v0.5 ζ 完成情况（2026-08-30）
+
+> 接续 v0.5 ε：把 EXF (WorkerPool) 与 TMRM (Allocator) 接通 —— `aitest run --farm`。
+
+### 交付清单
+
+- ✅ **`aitest run --farm`** —— 一个标志把两个子系统连起来
+  - 新增参数：`--farm PATH --farm-type {host,browser,mobile,desktop,sandbox} --farm-owner NAME`
+  - 行为：run 开始前 acquire N 台机器（concurrent = N），run 结束后全部 release
+  - 失败时已分配的也回滚
+- ✅ **会话级联 plan_id**：每次 run 生成新 `plan_id = run-<uuid>`，写进 session 表，方便 TRM 之后聚合
+- ✅ **单测**：4 新增 `test_exf_tmrm.py`，全部 130/130 通过
+  - 正常 acquire → run → release 链路
+  - 无可用机器时退出码 2 + 错误提示
+  - 不带 --farm 时不影响老路径
+  - session 表正确持久化 plan_id / owner / status
+
+### 架构演进
+
+```
+              ┌──────────────────────────────────────────┐
+              │ CLI: aitest run  --farm / --concurrency │
+              └──────────────────┬───────────────────────┘
+                                 │
+                                 ▼
+       ┌────────────────────────────────────────────────┐
+       │  EXF WorkerPool                                │
+       │   ├ acquire N machines (TMRM)                  │
+       │   ├ run N tasks in subprocesses                │
+       │   └ release N machines (TMRM, even on failure) │
+       └────────────────┬───────────────────────────────┘
+                        │
+                        ▼
+       ┌────────────────────────────────────────────────┐
+       │  TMRM Allocator / FarmStore                    │
+       └────────────────────────────────────────────────┘
+```
+
+### 关键决策记录（v0.5 ζ）
+
+- **失败即回滚**：acquire 部分成功时立刻 release 已分配，避免机器长期占着
+- **plan_id = run-<uuid>**：与 EXF 跑批对齐，方便 TRM 后期做"按 plan 对比 baseline"
+- **--farm-owner 默认 anon**：方便 ad-hoc 跑批；后续 quota 检查已留接口
+
+### 待办（v0.5 η 候选）
+
+- ⬜ PLG: 真实插件（db-sqlite / web-chrome），验证 stdio 协议完整链路
+- ⬜ aitest-plan：跑批编排（一次跑多 suite）
+- ⬜ TRM export（JUnit XML / HTML / PDF）
+- ⬜ TCM lifecycle 写回（GitOps 落地）
+- ⬜ gRPC 插件协议骨架（v0.8 预研）
+
+---
+
 ## 16. 文档与培训
 
 | 阶段 | 文档 | 培训 |
