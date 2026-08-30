@@ -1,10 +1,13 @@
-"""aitest CLI —— 5 个命令：run / ls / show / lint / diff / new。"""
+"""aitest CLI —— 5 个命令：run / ls / show / lint / diff / new / results。"""
 import argparse
 import json
 import sys
+import time
+import uuid
 from pathlib import Path
 
 from .core.registry import Registry
+from .core.state import Status, is_pass
 from .core.runner import Runner
 from .core.suite import Suite
 from .observers.json_report import JsonReportObserver
@@ -64,8 +67,46 @@ def cmd_run(args) -> int:
 
     suite = _load_suite(args)
     cases = suite.expand()
-    runner = Runner(reg)
-    results = runner.run_suite(cases, only=args.only, concurrency=args.concurrency)
+
+    # v0.5: --store 接 Result-Store；--concurrency>1 走进程级 WorkerPool
+    store = None
+    if getattr(args, "store", None):
+        from .core.store import ResultStore
+        store = ResultStore(args.store)
+
+    concurrency = max(1, int(getattr(args, "concurrency", 1) or 1))
+    if concurrency > 1 or store is not None:
+        from .core.worker import WorkerPool, Task, RetryPolicy
+        from .core.case import Case as _Case
+        tasks = []
+        for c in cases:
+            # matrix 展开后每个 case 走一遍；这里把 case_id 拼上序号保证唯一
+            t = Task(
+                task_id=str(uuid.uuid4()),
+                case=c,
+                retry=RetryPolicy(max_attempts=1),
+            )
+            tasks.append(t)
+        pool = WorkerPool(max_workers=concurrency, store=store)
+        results_raw = pool.run(tasks)
+        # 转成 Runner-style Result（保留 observers 调用）
+        from .core.result import Result as _R
+        from .core.context import Context
+        results = []
+        for r in results_raw:
+            ctx = Context(case=_Case(id=r["case_id"], name=r.get("case_name") or r["case_id"]))
+            ctx.params = r.get("params") or {}
+            ctx.run = r.get("run_output") or {}
+            results.append(_R(
+                case_id=r["case_id"], case_name=r.get("case_name") or r["case_id"],
+                ok=r.get("ok", False), status=r.get("status", "ERROR"),
+                ctx=ctx, error=Exception(r["error_message"]) if r.get("error_message") else None,
+            ))
+        if store is not None:
+            store.close()
+    else:
+        runner = Runner(reg)
+        results = runner.run_suite(cases, only=args.only, concurrency=1)
 
     bad = [r for r in results if not r.ok]
     print(f"\n=== {len(results)} cases, {len(bad)} failed ===")
@@ -114,6 +155,62 @@ def cmd_diff(args) -> int:
     return 0
 
 
+def cmd_dryrun(args) -> int:
+    """Dryrun：使用 mock 插件跑一遍，不触发真实副作用。"""
+    from .plugin_proto.mock import install_mock
+    from .core.runner import Runner
+    suite = _load_suite(args)
+    cases = suite.expand()
+
+    reg = _build_default_registry()
+    install_mock(reg)
+    if getattr(args, "junit", None):
+        reg.observer(JunitObserver(args.junit))
+
+    runner = Runner(reg)
+    results = runner.run_suite(cases, only=args.only, concurrency=args.concurrency)
+    bad = [r for r in results if not r.ok]
+    print(f"\n[dryrun] {len(results)} cases, {len(bad)} failed (mock mode)")
+    for r in bad:
+        print(f"  - {r.case_id}: {r.error}")
+    return 0 if not bad else 1
+
+
+def cmd_plugin_server(args) -> int:
+    """启动 JSON-over-stdio 插件服务器（v0.5 临时，v0.8 切 gRPC）。"""
+    from .plugin_proto.server import PluginServer
+    PluginServer(dryrun=args.dryrun).serve_forever()
+    return 0
+
+
+def cmd_results(args) -> int:
+    from .core.store import ResultStore
+    store = ResultStore(args.store)
+    try:
+        if args.summary:
+            s = store.summary()
+            for k, v in s.items():
+                print(f"{k:<10} {v}")
+            return 0
+        if args.case:
+            rows = store.list_by_case(args.case, limit=args.limit)
+        elif args.plan:
+            rows = store.list_by_plan(args.plan, limit=args.limit)
+        elif args.status:
+            rows = store.list_by_status(args.status, limit=args.limit)
+        else:
+            rows = store.recent(limit=args.limit)
+        for r in rows:
+            dur = f"{r.duration_ms:.1f}ms" if r.duration_ms is not None else "-"
+            ok = is_pass(Status(r.status))
+            err = f" err={r.error_code}" if (not ok) or r.error_code else ""
+            print(f"{r.task_id:<40} {r.case_id:<28} {r.status:<8} {dur:>10}{err}")
+        print(f"--- {len(rows)} row(s) ---")
+    finally:
+        store.close()
+    return 0
+
+
 def cmd_new(args) -> int:
     import yaml
     from .core.case import Case
@@ -152,6 +249,8 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--junit", help="junit xml path")
     pr.add_argument("--json-report", dest="json_report", help="json report path")
     pr.add_argument("--recorder", help="replay dir")
+    pr.add_argument("--store", help="Result-Store SQLite path (persist every result)")
+    pr.add_argument("--dryrun", action="store_true", help="dryrun: use mock plugin target (no real side-effect)")
     pr.set_defaults(func=cmd_run)
 
     pl = sub.add_parser("ls", help="list cases")
@@ -178,6 +277,25 @@ def build_parser() -> argparse.ArgumentParser:
     pn.add_argument("--id")
     pn.add_argument("--name")
     pn.set_defaults(func=cmd_new)
+
+    pd = sub.add_parser("dryrun", help="dryrun suite with mock plugin (no side effects)")
+    add_common(pd)
+    pd.add_argument("--concurrency", type=int, default=1)
+    pd.add_argument("--junit", help="junit xml path")
+    pd.set_defaults(func=cmd_dryrun)
+
+    pps = sub.add_parser("plugin-server", help="start JSON-over-stdio plugin server (for v0.8 gRPC bridge)")
+    pps.add_argument("--dryrun", action="store_true")
+    pps.set_defaults(func=cmd_plugin_server)
+
+    pr2 = sub.add_parser("results", help="query Result-Store")
+    pr2.add_argument("--store", default="aitest-results.db", help="Result-Store SQLite path")
+    pr2.add_argument("--case", help="filter by case id")
+    pr2.add_argument("--plan", help="filter by plan id")
+    pr2.add_argument("--status", help="filter by status (SUCCESS/FAILED/TIMEOUT/...)")
+    pr2.add_argument("--limit", type=int, default=20)
+    pr2.add_argument("--summary", action="store_true", help="show summary only")
+    pr2.set_defaults(func=cmd_results)
 
     return p
 

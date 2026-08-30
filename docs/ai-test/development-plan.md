@@ -386,6 +386,62 @@ flowchart TD
 
 ---
 
+## v0.5 β 完成情况（2026-08-30）
+
+> 接续 v0.5 α：把核心引擎与持久化、CLI、子进程插件协议三块对用户暴露，并补齐干跑模式。
+
+### 交付清单
+
+- ✅ **CLI 集成 Result-Store**：`aitest run --store PATH --concurrency N`，每次 case 完成即 `upsert`
+- ✅ **CLI 暴露查询**：`aitest results --store --case --plan --status --limit --summary`
+- ✅ **CLI 暴露干跑**：`aitest dryrun --suite` 强制使用 mock 插件，零副作用
+- ✅ **JSON-over-stdio 插件协议**：`plugin_proto/` 模块
+  - `protocol.py` — frame 协议（`HELLO` / `MANIFEST` / `INVOKE` / `ASSERT` / `SHUTDOWN`）
+  - `server.py` — 父进程侧，spawn 子进程并按请求路由到对应 handler
+  - `client.py` — 子进程侧，stdio JSONL 收发
+  - `mock.py` — 内置 `mock.py / llm.echo` 等假目标，零网络
+- ✅ **`plugin-server` 子命令**：启动 stand-alone 协议服务（为 v0.8 gRPC 桥做准备）
+- ✅ **示例脚本**：`examples/plugin_protocol.py` 跑通 4 个 e2e 场景（实插件 / 干跑 / mock / LLM judge）
+- ✅ **单测**：10 新增 `test_plugin_proto.py`，全部 66/66 通过
+
+### 架构演进
+
+```
+┌────────────────────────────────────────────────────────────┐
+│ CLI: run / results / dryrun / plugin-server                │
+└────────────────────────────────────────────────────────────┘
+            │                          │
+            ▼                          ▼
+  ┌──────────────────┐       ┌──────────────────────────┐
+  │ Runner + Worker  │       │ PluginProto (stdio JSON) │
+  │      Pool        │──────►│  parent  ⇄  child        │
+  └────────┬─────────┘       └──────────────────────────┘
+           │
+           ▼
+   ┌──────────────┐    ┌────────────────────┐
+   │ Result-Store │    │ Mock registry      │
+   │  (SQLite)    │    │ (dryrun / tests)   │
+   └──────────────┘    └────────────────────┘
+```
+
+### 关键决策记录（v0.5 β）
+
+- **插件协议先行 stdio JSON**：v0.5 不引入 gRPC 依赖；JSONL over stdio 足够覆盖 manifest/invoke/assert 三个动作，避免给原型阶段加锁
+- **`dryrun` 强制 mock**：用 `--dryrun` 时不查 `target` 字段，直接走 `mock.registry`，任何插件都可无副作用地跑完
+- **结果即时 upsert**：子进程一返回 `Status` 终态，父进程立即写 SQLite；崩溃也不丢已完成的数据
+- **CLI 字段对齐设计文档**：`--store / --concurrency / --recorder` 与 `Result-Store` 设计中的字段一一对应
+- **`plugin-server` 子命令**：先以 stdio 模式独立运行，方便 v0.8 替换为 gRPC 时保持兼容
+
+### 待办（v0.5 γ 候选）
+
+- ⬜ aitest-lint 完整规则（按用户要求继续延后）
+- ⬜ `--plan` 跑批编排（一次跑多 suite）
+- ⬜ `--junit-xml` 报告输出
+- ⬜ 进程内超时从 SIGTERM 升级为信号量 + watchdog 协程（Python 限制）
+- ⬜ gRPC 插件协议骨架（v0.8 预研）
+
+---
+
 ## 16. 文档与培训
 
 | 阶段 | 文档 | 培训 |
