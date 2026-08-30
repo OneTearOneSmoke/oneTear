@@ -1,6 +1,6 @@
 # AI 时代测试框架与用例管理 — 设计索引
 
-> 本仓库 `docs/ai-test/` 目前共有 **7 份文档**：
+> 本仓库 `docs/ai-test/` 目前共有 **8 份文档**：
 >
 > | 文档 | 作用 |
 > | --- | --- |
@@ -11,5 +11,6 @@
 > | [`plugin-system-design.md`](plugin-system-design.md) | **插件系统（PLG）** 详细设计 |
 > | [`test-report-management-design.md`](test-report-management-design.md) | **测试报告管理（TRM）** 详细设计 |
 > | [`test-machine-resource-management-design.md`](test-machine-resource-management-design.md) | **测试机器资源管理（TMRM / Test Farm）** 详细设计 |
+> | [`development-plan.md`](development-plan.md) | **开发计划**（路线图、阶段任务、资源、风险、Sprint 1） |
 >
 > 本文件是历史快照与索引；阅读请从 `requirements.md` 起。
