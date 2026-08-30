@@ -685,6 +685,67 @@ flowchart TD
 
 ---
 
+## v0.5 η 完成情况（2026-08-30）
+
+> 接续 v0.5 ζ：PLG (Plugin) 子系统第一个真实插件 —— `db_sqlite`，验证 stdio JSON 协议全链路。
+
+### 交付清单
+
+- ✅ **`src/aitest/plugins/` 新包**：
+  - `db_sqlite.py` — 真实 SQLite 插件（stdlib only，零外部依赖）
+    - commands: `db.connect` / `db.query` / `db.exec` / `db.close` / `db.tables`
+    - assertors: `db.row_count` / `db.cell_eq` / `db.col_eq`
+    - 模块级 `_CONNS` 字典：跨 stdio RPC 调用保持连接（plugin-server 长生命周期）
+  - `discovery.py` — `PluginMeta` 数据类 + `list_builtin()` / `get(name)`，v1.0 接 entry_points
+- ✅ **`plugin-server --plugin db_sqlite`**：从 cli.py 选择加载某个内置插件（默认仍是全量注册表）
+- ✅ **CLI 子命令 `aitest plugin`**：
+  - `plugin ls` — 列出内置插件
+  - `plugin info NAME` — 查看详情
+  - 都支持 `--json`
+- ✅ **示例脚本**：
+  - `examples/db_sqlite_e2e.py` — 进程内（直接调 Registry）跑 7 步场景
+  - `examples/db_sqlite_stdio.py` — 走 stdio JSON 全链路：spawn plugin-server → invoke → assert → close
+- ✅ **单测**：18 新增 `test_plugins.py`，全部 148/148 通过
+  - discovery / connect / close / exec / query / assertors / manifest
+
+### 架构演进
+
+```
+  ┌──────────────────────────────────────────────────────┐
+  │ CLI: aitest plugin {ls,info}                         │
+  │      aitest plugin-server --plugin db_sqlite         │
+  └──────────────────────┬───────────────────────────────┘
+                         ▼
+  ┌──────────────────────────────────────────────────────┐
+  │ PLG (src/aitest/plugins/)                            │
+  │  - discovery     (内置清单)                          │
+  │  - db_sqlite     (命令 + 断言 + 模块级连接池)         │
+  └──────────────────────┬───────────────────────────────┘
+                         │ stdio JSON
+                         ▼
+  ┌──────────────────────────────────────────────────────┐
+  │ plugin_proto/server.py                               │
+  │  - manifest / invoke / assert                        │
+  └──────────────────────────────────────────────────────┘
+```
+
+### 关键决策记录（v0.5 η）
+
+- **模块级 _CONNS 而不是 ctx.meta**：stdio RPC 每次 invoke 都构造新 Context，跨调用共享状态必须用进程级字典
+- **discovery 起步用硬编码**：v0.5 η 不引入 importlib.metadata，v1.0 切到 entry_points
+- **plugin-server --plugin 接受单一插件名**：组合多插件留到 v1.0（YAML 配置）
+- **assertor.check 不返回 bool，抛 AssertFailure**：与 EXF 状态机对齐
+
+### 待办（v0.5 θ 候选）
+
+- ⬜ aitest-plan 跑批编排（一次跑多 suite）
+- ⬜ TRM export（JUnit XML / HTML）
+- ⬜ 更多内置插件（http 复用 / llm.echo / python.eval）
+- ⬜ gRPC 插件协议骨架（v0.8 预研）
+- ⬜ EXF WorkerPool 把 machine_id 透传给 Task
+
+---
+
 ## 16. 文档与培训
 
 | 阶段 | 文档 | 培训 |

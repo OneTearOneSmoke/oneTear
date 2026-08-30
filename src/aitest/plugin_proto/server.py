@@ -143,9 +143,22 @@ class PluginServer:
 def run_server_from_argv(argv=None) -> int:
     p = argparse.ArgumentParser(prog="aitest-plugin-server")
     p.add_argument("--dryrun", action="store_true")
+    p.add_argument("--plugin", help="built-in plugin to mount (e.g. db_sqlite)")
     args = p.parse_args(argv)
-    PluginServer(dryrun=args.dryrun).serve_forever()
+    registry = _build_registry_for(args.plugin, dryrun=args.dryrun)
+    PluginServer(registry=registry, dryrun=args.dryrun).serve_forever()
     return 0
+
+
+def _build_registry_for(plugin: str | None, *, dryrun: bool = False):
+    """根据 --plugin 选择加载器；None = 全量默认注册表。"""
+    if plugin is None:
+        return None  # 由 PluginServer.__init__ 用默认
+    if plugin == "db_sqlite":
+        from ..plugins.db_sqlite import build_registry as build_db
+        return build_db()
+    raise SystemExit(f"unknown built-in plugin: {plugin!r}")
+
 
 
 if __name__ == "__main__":

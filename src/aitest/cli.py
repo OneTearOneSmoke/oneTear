@@ -222,8 +222,9 @@ def cmd_dryrun(args) -> int:
 
 def cmd_plugin_server(args) -> int:
     """启动 JSON-over-stdio 插件服务器（v0.5 临时，v0.8 切 gRPC）。"""
-    from .plugin_proto.server import PluginServer
-    PluginServer(dryrun=args.dryrun).serve_forever()
+    from .plugin_proto.server import PluginServer, _build_registry_for
+    registry = _build_registry_for(getattr(args, "plugin", None), dryrun=args.dryrun)
+    PluginServer(registry=registry, dryrun=args.dryrun).serve_forever()
     return 0
 
 
@@ -663,6 +664,44 @@ def cmd_case_version(args) -> int:
     return 0
 
 
+# ──────────── PLG plugin handlers ────────────
+def cmd_plugin_ls(args) -> int:
+    from .plugins.discovery import list_manifests
+    rows = list_manifests()
+    if args.json:
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+        return 0
+    if not rows:
+        print("[plugin:ls] no built-in plugins")
+        return 0
+    print(f"[plugin:ls] {len(rows)} built-in plugins")
+    for r in rows:
+        print(
+            f"  {r['name']:<20} v{r['version']:<10} "
+            f"commands={len(r['commands'])} assertors={len(r['assertors'])}"
+        )
+        print(f"    {r['description']}")
+    return 0
+
+
+def cmd_plugin_info(args) -> int:
+    from .plugins.discovery import get
+    try:
+        m = get(args.name)
+    except KeyError as e:
+        print(f"[plugin:info] {e}")
+        return 2
+    d = m.to_dict()
+    if args.json:
+        print(json.dumps(d, ensure_ascii=False, indent=2))
+        return 0
+    print(f"[plugin:info] {d['name']} v{d['version']}")
+    print(f"  {d['description']}")
+    print(f"  commands: {', '.join(d['commands'])}")
+    print(f"  assertors: {', '.join(d['assertors'])}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="aitest", description="AI 时代极简测试框架")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -724,6 +763,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     pps = sub.add_parser("plugin-server", help="start JSON-over-stdio plugin server (for v0.8 gRPC bridge)")
     pps.add_argument("--dryrun", action="store_true")
+    pps.add_argument("--plugin", help="built-in plugin to mount (e.g. db_sqlite)")
     pps.set_defaults(func=cmd_plugin_server)
 
     pr2 = sub.add_parser("results", help="query Result-Store")
@@ -859,6 +899,19 @@ def build_parser() -> argparse.ArgumentParser:
     pcv.add_argument("--current", default="1.0.0", help="当前 semver")
     pcv.add_argument("--json", action="store_true")
     pcv.set_defaults(func=cmd_case_version)
+
+    # ──────────── PLG: plugin 子命令（list built-in plugins） ────────────
+    pplg = sub.add_parser("plugin", help="PLG 插件管理（list / info）")
+    pplg_sub = pplg.add_subparsers(dest="plugin_cmd", required=True)
+
+    pplg_ls = pplg_sub.add_parser("ls", help="列出内置插件")
+    pplg_ls.add_argument("--json", action="store_true")
+    pplg_ls.set_defaults(func=cmd_plugin_ls)
+
+    pplg_info = pplg_sub.add_parser("info", help="查看某个插件详情")
+    pplg_info.add_argument("name")
+    pplg_info.add_argument("--json", action="store_true")
+    pplg_info.set_defaults(func=cmd_plugin_info)
 
     return p
 
