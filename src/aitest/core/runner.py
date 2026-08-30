@@ -38,11 +38,13 @@ class Runner:
         except Exception as e:  # noqa: BLE001
             ok, err = False, e
         finished = time.time()
+        from .state import Status, to_ok
+        final_status = Status.SUCCESS if ok else Status.FAILED
         result = Result(
             case_id=case.id,
             case_name=case.name,
             ok=ok,
-            status="passed" if ok else "failed",
+            status=final_status.value,
             ctx=ctx,
             error=err,
             started_at=started,

@@ -363,6 +363,27 @@ flowchart TD
 
 两周后能对内 demo、CI 集成示例、文档可读。
 
+## v0.5 α 完成情况（2026-08-30）
+
+- ✅ `core/state.py` — 10 个状态 + 合法转移表 + IllegalTransition
+- ✅ `core/store.py` — SQLite Result-Store（upsert / get / list_by_case / list_by_plan / list_by_status / summary / recent）
+- ✅ `core/worker.py` — `WorkerPool` 进程级并发（spawn context）、`Task` / `RetryPolicy`、硬超时（SIGTERM → SIGKILL）、失败分类重试、可选持久化到 Result-Store
+- ✅ `core/runner.py` — 输出对齐 `Status` 大写（SUCCESS / FAILED / TIMEOUT / CANCELED / BLOCKED / ERROR）
+- ✅ `examples/run_with_worker_pool.py` — 5 个 demo 全通过：串行 / 并发 / 硬超时 / 重试 / Store 查询
+- ✅ 单测：41 老 + 20 新 = 61/61 通过
+- ⬜ `aitest-lint` 完整规则（按用户要求延后）
+- ⬜ `aitest-dryrun`（延后）
+- ⬜ `Result-Store` 集成进 CLI（默认不开，可用 `--store` 启用）
+
+## 关键决策记录（v0.5 α）
+
+- **状态值大小写**：以设计文档为准采用 `SUCCESS/FAILED/TIMEOUT` 大写；老 `passed/failed` 小写已迁移
+- **进程模型**：v0.5 用 Python `multiprocessing.spawn`（避免 fork 继承副作用），不依赖 gRPC
+- **超时实现**：子进程 + `terminate()` (SIGTERM) 1s 后 `kill()` (SIGKILL) 兜底
+- **重试策略**：默认 `max_attempts=1`（不重试），`retry_on` 白名单（FAILED / TIMEOUT / TRANSIENT）
+- **失败 → 终态**：子进程内任何异常映射为 `ERROR` 终态，确保状态机合法
+
+
 ---
 
 ## 16. 文档与培训
