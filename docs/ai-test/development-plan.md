@@ -572,6 +572,65 @@ flowchart TD
 
 ---
 
+## v0.5 ε 完成情况（2026-08-30）
+
+> 接续 v0.5 δ：把 TCM (Test Case Management) 子系统从 EXF core 抽出来，作为独立模块。
+
+### 交付清单
+
+- ✅ **新建 `src/aitest/tcm/` 包**：
+  - `case.py` — 从 `core/case.py` 迁过来（`Case` / `CaseStep` / `CaseAssert` / `CaseRecord`）
+  - `suite.py` — 从 `core/suite.py` 迁过来（`Suite` + 矩阵展开 + 标签查询）
+  - `registry.py` — 从 `core/registry.py` 迁过来（命令 / 断言 / Provider / Observer 注册中心）
+  - `render.py` — 从 `core/render.py` 迁过来（模板解析 + 过滤器）
+  - `lifecycle.py` — **新增**：状态机（draft → active → deprecated → retired）+ `IllegalTransition`
+  - `version.py` — **新增**：`content_hash()` (SHA-256 前 12 位，剔除 path/时间戳) + `semver` parse/format/bump
+  - `diff.py` — **新增**：`CaseDiff` / `StepDiff` / `diff_cases()` / `diff_suites()`
+- ✅ **向后兼容 shim**：`core/case.py` / `core/suite.py` / `core/registry.py` / `core/render.py` 全部改为 re-export，老代码 `from aitest.core.case import Case` 仍可用
+- ✅ **CLI 子命令 `aitest case`**：
+  - `case lifecycle [--suite] [--id] [--to {draft,active,deprecated,retired}] [--json]` — 查询 / 模拟状态转移
+  - `case diff --a PATH --b PATH [--pattern] [--json]` — 两 suite 语义 diff
+  - `case version [--suite] [--id] [--bump {major,minor,patch}] [--json]` — content hash + semver
+- ✅ **单测**：23 新增 `test_tcm.py`，全部 126/126 通过（103 旧 + 23 TCM）
+- ✅ **架构边界**：TCM 完全独立，与 EXF / TRM / TMRM 仅通过 import 解耦
+
+### 架构演进
+
+```
+  ┌────────────────────────┐         ┌─────────────────────────┐
+  │ TCM  (src/aitest/tcm/) │         │ EXF core/               │
+  │  - case / suite        │         │  - runner / worker      │
+  │  - lifecycle           │  消费   │  - state machine        │
+  │  - version             │ ──────► │  - store                │
+  │  - diff                │ Case    │  - context / result     │
+  │  - registry / render   │         │  - errors               │
+  └────────────────────────┘         └─────────────────────────┘
+           ▲                                 │
+           │                                 │
+           │        ┌────────────────┐        │
+           └────────│ shim (re-export)│────────┘
+                    │ core/case etc. │
+                    └────────────────┘
+```
+
+### 关键决策记录（v0.5 ε）
+
+- **shim 而不是 move**：core/case.py 改为 1 行 `from ..tcm.case import *`，所有 import 点不动；测试一次性全过
+- **lifecycle 不写回 YAML**：v0.5 ε 只校验 + 模拟，v1.0 接 GitOps 后再落库（避免本地写文件污染）
+- **content_hash 剔除 path/时间戳**：让 hash 跟随"用例语义"，不跟随"位置 / 时间"
+- **diff 分 meta + steps 两段**：meta 字段直接比较；steps 字段按"长度变化 + 列表 diff"两阶段
+- **`can_run` 只允许 ACTIVE / DEPRECATED**：DRAFT 不被 EXF 执行；RETIRED 完全终止
+
+### 待办（v0.5 ζ 候选）
+
+- ⬜ PLG: 实现一个真实插件（如 db-sqlite / web-chrome），验证 stdio 协议完整链路
+- ⬜ EXF ↔ TMRM 集成：`aitest run --farm` 自动 acquire 机器后喂给 WorkerPool
+- ⬜ aitest-plan 跑批编排：一次跑多 suite
+- ⬜ JUnit XML 报告输出（TRM export）
+- ⬜ gRPC 插件协议骨架（v0.8 预研）
+
+---
+
 ## 16. 文档与培训
 
 | 阶段 | 文档 | 培训 |

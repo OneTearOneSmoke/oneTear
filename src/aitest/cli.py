@@ -514,6 +514,111 @@ def cmd_farm_sessions(args) -> int:
     return 0
 
 
+# ──────────── TCM case handlers ────────────
+def cmd_case_lifecycle(args) -> int:
+    """查询 / 修改 case 生命周期。
+
+    设计：状态机本身只校验合法性 + 给告警；当前版本不写回 YAML（v1.0 接 GitOps 后落库）。
+    """
+    from .tcm.lifecycle import LifecycleStatus, IllegalTransition, allowed_next, can_run
+    from .tcm.suite import Suite
+    from .tcm.case import Case
+
+    suite = Suite.load_dir(args.suite, pattern=args.pattern)
+    target_ids = {args.id} if args.id else None
+    rows = []
+    for c in suite.cases:
+        if target_ids and c.id not in target_ids:
+            continue
+        # 当前 lifecycle = 从 YAML 读不到，沿用"未指定 → ACTIVE"
+        cur = LifecycleStatus.ACTIVE
+        row = {
+            "id": c.id,
+            "current": cur.value,
+            "next": [s.value for s in allowed_next(cur)],
+            "can_run": can_run(cur),
+        }
+        if args.to:
+            try:
+                from .tcm.lifecycle import transition as lc_transition
+                new = lc_transition(cur, LifecycleStatus(args.to))
+                row["target"] = new.value
+            except IllegalTransition as e:
+                row["error"] = str(e)
+        rows.append(row)
+    if args.json:
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+        return 0
+    if not rows:
+        print("[case:lifecycle] 0 cases matched")
+        return 0
+    print(f"[case:lifecycle] {len(rows)} cases")
+    for r in rows:
+        line = f"  {r['id']:<40} current={r['current']:<10} next={','.join(r['next']):<24} can_run={r['can_run']}"
+        if "target" in r:
+            line += f" -> {r['target']}"
+        if "error" in r:
+            line += f"  ERR={r['error']}"
+        print(line)
+    return 0
+
+
+def cmd_case_diff(args) -> int:
+    from .tcm.suite import Suite
+    from .tcm.diff import diff_suites
+
+    sa = Suite.load_dir(args.a, pattern=args.pattern)
+    sb = Suite.load_dir(args.b, pattern=args.pattern)
+    diffs = diff_suites(sa, sb)
+    if args.json:
+        print(json.dumps([d.to_dict() for d in diffs], ensure_ascii=False, indent=2))
+        return 0
+    changed = [d for d in diffs if not d.identical]
+    print(f"[case:diff] {len(diffs)} cases compared, {len(changed)} changed")
+    for d in changed:
+        print(f"  {d.case_id}:")
+        for f, (ov, nv) in d.meta.items():
+            print(f"    meta.{f}: {ov!r} -> {nv!r}")
+        for s in d.steps:
+            print(f"    steps.{s.field} ({s.kind}): {s.note}")
+    return 0
+
+
+def cmd_case_version(args) -> int:
+    from .tcm.suite import Suite
+    from .tcm.version import CaseVersion, content_hash, bump_semver
+
+    suite = Suite.load_dir(args.suite, pattern=args.pattern)
+    target_ids = {args.id} if args.id else None
+    rows = []
+    for c in suite.cases:
+        if target_ids and c.id not in target_ids:
+            continue
+        cv = CaseVersion.from_dict(c.to_dict())
+        row = {
+            "id": c.id,
+            "semver": cv.semver,
+            "content_hash": cv.content_hash,
+            "version": str(cv),
+        }
+        if args.bump:
+            row["bumped"] = bump_semver(cv.semver, args.bump)
+        rows.append(row)
+    if args.json:
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+        return 0
+    if not rows:
+        print("[case:version] 0 cases matched")
+        return 0
+    print(f"[case:version] {len(rows)} cases")
+    for r in rows:
+        line = f"  {r['id']:<40} {r['version']}"
+        if "bumped" in r:
+            line += f"  -> bumped: {r['bumped']}"
+        print(line)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="aitest", description="AI 时代极简测试框架")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -674,6 +779,36 @@ def build_parser() -> argparse.ArgumentParser:
     pfmt.add_argument("--status", choices=["acquired", "released", "expired", "failed"])
     pfmt.add_argument("--json", action="store_true")
     pfmt.set_defaults(func=cmd_farm_sessions)
+
+    # ──────────── TCM: case 子命令（lifecycle / diff / version） ────────────
+    pc = sub.add_parser("case", help="TCM 用例管理（lifecycle / diff / version）")
+    pc_sub = pc.add_subparsers(dest="case_cmd", required=True)
+
+    pcl = pc_sub.add_parser("lifecycle", help="查询或修改用例生命周期")
+    pcl.add_argument("--suite", default="cases")
+    pcl.add_argument("--pattern", default="*.y*ml")
+    pcl.add_argument("--id", help="只对指定 case id 操作")
+    pcl.add_argument("--to", choices=["draft", "active", "deprecated", "retired"],
+                     help="把 case 转到的目标状态")
+    pcl.add_argument("--json", action="store_true")
+    pcl.set_defaults(func=cmd_case_lifecycle)
+
+    pcd = pc_sub.add_parser("diff", help="对比两 suite 的语义 diff")
+    pcd.add_argument("--a", required=True, help="A suite 路径（文件或目录）")
+    pcd.add_argument("--b", required=True, help="B suite 路径（文件或目录）")
+    pcd.add_argument("--pattern", default="*.y*ml")
+    pcd.add_argument("--json", action="store_true")
+    pcd.set_defaults(func=cmd_case_diff)
+
+    pcv = pc_sub.add_parser("version", help="计算 case 的 semver + content hash")
+    pcv.add_argument("--suite", default="cases")
+    pcv.add_argument("--pattern", default="*.y*ml")
+    pcv.add_argument("--id", help="只看这一个 case")
+    pcv.add_argument("--bump", choices=["major", "minor", "patch"],
+                     help="自动 bump 当前 semver（仅展示，不写回）")
+    pcv.add_argument("--current", default="1.0.0", help="当前 semver")
+    pcv.add_argument("--json", action="store_true")
+    pcv.set_defaults(func=cmd_case_version)
 
     return p
 
