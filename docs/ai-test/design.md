@@ -14,3 +14,9 @@
 > | [`development-plan.md`](development-plan.md) | **开发计划**（路线图、阶段任务、资源、风险、Sprint 1） |
 >
 > 本文件是历史快照与索引；阅读请从 `requirements.md` 起。
+
+## 整体开发计划
+
+- **当前重点**：[`development-plan.md`](development-plan.md) — 5 模块、5 阶段、3 个并行工作流、关键决策、立即 Sprint。
+- 顶层入口：项目愿景 → 需求 → 架构 → 5 模块设计 → 计划。
+

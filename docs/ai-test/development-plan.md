@@ -1,237 +1,390 @@
-# 开发计划 — AI 时代测试框架与用例管理
+# 整体开发计划 — AI 时代测试平台
 
 > 版本：v1.0 · 日期：2026-08-30  
-> 范围：把 `aitest` 从 **Python 单进程原型** 推进到 **可扩展、高性能、可生产** 的 v1.0。  
-> 关联：[`requirements.md`](requirements.md) · [`architecture.md`](architecture.md) · 五个模块设计文档。
+> 范围：**整个测试平台** 的端到端开发路线，含 5 大模块（TCM / EXF / TRM / TMRM / PLG）、  
+> 基础设施、SDK、内置插件、商业化、文档与培训。  
+> 关联：[`requirements.md`](requirements.md) · [`architecture.md`](architecture.md) · 5 个模块设计文档。
 
 ---
 
-## 1. 当前状态
+## 1. 项目愿景与北极星指标
+
+**愿景**：打造可承载 **1 亿用例 / 10K 并发 / 18 类官方插件 / 5+ 云厂商** 的 AI 时代测试基础设施，让 AI 写的代码可被机器和人类共同验证。
+
+| 北极星 | v0.5 | v0.8 | v1.0 | v2.0 |
+| --- | --- | --- | --- | --- |
+| 在管用例数 | 1K | 10K | 100K | 1M |
+| 单集群并发 | 200 | 1K | 10K | 10K |
+| 执行吞吐 | 200/分钟 | 2K/分钟 | 5K/分钟 | 10K/分钟 |
+| 官方插件数 | 3 (mock) | 2 真实 | 18 | 18 + Hub |
+| 接入团队 | 内部 1 | 内部 3 | 外部 5 | 外部 20 |
+| 调度 P95 | 200 ms | 50 ms | 50 ms | 30 ms |
+
+---
+
+## 2. 当前状态
 
 | 项 | 状态 |
 | --- | --- |
-| Python 原型 `aitest` v0.1 | ✅ 已完成（~3.5K 行，41 个单测通过） |
-| 用例 / 执行 / 插件 / 报告 / 资源 5 大模块设计 | ✅ 已完成（~2.8K 行文档，38 张 Mermaid 图） |
-| 单机可用版本 v0.5 | ⬜ 未开始 |
-| 分布式 + 多语言插件 v0.8 | ⬜ 未开始 |
-| 生产级 v1.0 | ⬜ 未开始 |
-| AI 闭环 v2.0 | ⬜ 未开始 |
+| **设计文档** | ✅ 8 份 / 3051 行 / 39 张 Mermaid 图 |
+| **Python 原型** (`src/aitest/`) | ✅ v0.1，~3.5K 行，41 单测通过 |
+| **示例用例 / 插件 SDK 草案** | ✅ 7 YAML / 4 插件 |
+| **CMDB / 监控 / CI** | ⬜ 未开始 |
+| **生产部署** | ⬜ 未开始 |
+| **第三方生态** | ⬜ 未开始 |
 
-**核心结论**：设计齐备、代码只 5%；距 v1.0 大约还需 **~50K 行新代码 / 9-12 人月 / 5 人小队**。
+**评估**：设计完整、实现 5%；从原型到 v1.0 距离约 **~50K 行新代码 / 9-12 人月 / 5 人小队 9-12 个月**。
 
 ---
 
-## 2. 总体路线图
+## 3. 总体策略
+
+### 3.1 三个并行工作流
+
+```mermaid
+flowchart LR
+  subgraph W1[工作流 A：核心引擎]
+    E1[EXF 内核 Rust] --> E2[gRPC 协议] --> E3[SDK 多语言]
+  end
+  subgraph W2[工作流 B：服务化]
+    S1[TCM Go] --> S2[TRM] --> S3[TMRM]
+  end
+  subgraph W3[工作流 C：场景插件]
+    P1[DB 插件] --> P2[Web 插件] --> P3[LLM 插件]
+  end
+  W1 --> W2
+  W2 --> W3
+```
+
+- **工作流 A（性能关键）**：EXF 内核 + 插件协议 + SDK，决定上限
+- **工作流 B（数据/治理）**：TCM/TRM/TMRM 决定规模
+- **工作流 C（场景落地）**：插件决定能服务哪些场景
+
+三条工作流由 v0.8 起并行推进，每个 sprint 三方各 1-2 人。
+
+### 3.2 阶段切分原则
+
+- 每个版本 **必须能对外 demo**（哪怕只是单模块）。
+- 每个版本 **必须通过 SLO 验收**（不是“做完了”）。
+- 每个版本 **必须有可下载的发行版**（GitHub Release / 内部包）。
+
+---
+
+## 4. 阶段路线图
 
 ```mermaid
 gantt
-  title aitest 路线图（2026 Q3 - 2027 Q3）
+  title 平台整体路线图（2026 Q3 - 2028 Q2）
   dateFormat YYYY-MM-DD
   axisFormat %Y-%m
-  section v0.5 单机生产
-  完善 CLI + 报告 (Python)         :a1, 2026-09-01, 28d
-  aitest-lint 完整规则              :a2, after a1, 14d
-  aitest-dryrun (py/sh/llm)         :a3, after a2, 14d
-  Result-Store (SQLite)             :a4, after a1, 14d
-  Worker Pool (Process)             :a5, after a4, 14d
-  文档 + 用户指南                   :a6, 2026-09-01, 56d
-  section v0.8 分布式 + 持久化
-  TCM 服务化 (Go + PG)              :b1, after a6, 60d
-  TRM 接入 + ClickHouse             :b2, after b1, 45d
-  TMRM 资源池 + 健康检查            :b3, after b1, 45d
-  EXF 改 Rust 内核                  :b4, after a6, 90d
-  gRPC 插件协议 v1                  :b5, after b4, 30d
-  Python 插件 SDK                   :b6, after b5, 21d
-  2 个真实插件 (db / web)           :b7, after b6, 30d
-  NATS JetStream + 状态机           :b8, after b4, 30d
-  集成测试 + 压测                   :b9, after b8, 21d
+  section v0.5 单机可用
+  aitest-lint + dryrun        :a1, 2026-09-01, 28d
+  Process Worker Pool          :a2, after a1, 14d
+  SQLite 结果库 + JUnit/Allure :a3, after a1, 14d
+  文档 + 用户指南              :a4, 2026-09-01, 42d
+  内部灰度 (1 团队)            :a5, after a3, 14d
+  section v0.8 分布式 + 多语言
+  EXF Rust 内核 (调度+状态机) :b1, 2026-10-15, 90d
+  gRPC 插件协议 v1             :b2, after b1, 30d
+  TCM 服务化 (Go + PG)         :b3, 2026-10-15, 75d
+  TMRM 资源池 + 健康           :b4, after b3, 45d
+  TRM 接入 + ClickHouse        :b5, after b3, 60d
+  Python/Go/Rust 插件 SDK      :b6, after b2, 30d
+  db-postgres + web-chrome 插件:b7, after b6, 45d
+  NATS + HA + 压测             :b8, after b1, 60d
   section v1.0 生产级
-  Go / Rust 插件 SDK                :c1, after b9, 30d
-  8+ 官方插件                       :c2, after c1, 60d
-  沙箱 (rlimit + seccomp)           :c3, after b9, 30d
-  多云 TMRM (AWS/GCP)               :c4, after b9, 45d
-  mTLS + Vault                      :c5, after b9, 30d
-  GitLab / GitHub CI                :c6, after c2, 30d
-  MCP Server (TCM/TRM)              :c7, after c5, 30d
-  性能基线 + 优化                   :c8, after c6, 30d
+  16 官方插件补齐              :c1, 2027-02-01, 90d
+  沙箱 (rlimit + seccomp)      :c2, 2027-02-01, 60d
+  多云 TMRM (AWS/GCP/Azure)    :c3, 2027-02-01, 75d
+  mTLS + Vault                 :c4, 2027-02-01, 60d
+  GitLab/GitHub CI 集成        :c5, after c1, 45d
+  MCP Server (TCM/TRM)         :c6, after c4, 45d
+  性能基线 + 优化              :c7, after c5, 30d
+  RC1 → GA                     :c8, after c7, 30d
   section v2.0 AI 闭环
-  Flaky 检测 + 自愈                 :d1, after c8, 45d
-  用例生成 (LLM)                    :d2, after d1, 45d
-  Replayer / 失败回放                :d3, after d1, 30d
-  预测性扩缩容                      :d4, after c8, 45d
-  多 region 灾备                    :d5, after d4, 45d
+  Flaky 检测 + 自愈            :d1, 2027-09-01, 60d
+  LLM 用例生成                 :d2, after d1, 60d
+  Replayer / 失败回放           :d3, after d1, 45d
+  预测性扩缩容                 :d4, 2027-09-01, 75d
+  多 region 灾备               :d5, after d4, 60d
+  v2.0 GA                      :d6, after d5, 30d
+  section v3.0 自治
+  探索式测试 / 智能调度         :e1, 2028-04-01, 180d
+  根因分析 / 自适应 SLA         :e2, after e1, 180d
 ```
 
 ---
 
-## 3. 阶段详解
+## 5. 模块开发矩阵（5 模块 × 5 阶段）
 
-### v0.5 — 单机生产可用（4-6 周 / 2 人）
+每个单元格是该模块在该阶段的目标产出。
 
-**目标**：让现有 Python 原型在 CI / 中小团队中真正可用，配齐 lint / dryrun / 报告 / 进程池。
-
-| 任务 | 产出 | 验收 |
-| --- | --- | --- |
-| `aitest-lint` 完整规则 | 静态检查插件参数 schema、模板变量、命名风格、死引用 | 100+ 规则，CI 中作为门禁 |
-| `aitest-dryrun` (py/sh/llm) | 预演 3 类命令用 mock target | 三类插件 dryrun 跑通，秒级 |
-| 进程级 Worker Pool | `multiprocessing` 替换 ThreadPool | 单机 200 并发用例 |
-| Result-Store (SQLite) | 本地结果库 + JUnit/Allure 报告 | 1 万条结果查询 < 100 ms |
-| 完善 CLI / 配置 | `aitest.yaml` 全局配置 + plan 文件 | 支持 plan 复用 |
-| 文档 + 用户指南 | docs/user-guide.md + tutorial | 新人 1 天接入 |
-
-**不做**：分布式、gRPC、PG、TMRM 多云。
-
----
-
-### v0.8 — 分布式 + 持久化（3 个月 / 3 人）
-
-**目标**：核心模块服务化、EXF 改 Rust 内核、引入 gRPC 插件协议，达成 1K 并发。
-
-| 任务 | 产出 | 验收 |
-| --- | --- | --- |
-| TCM 服务化 (Go + PG) | HTTP/gRPC API、JSONB + tsvector + pgvector | 100 万用例 写入 500 QPS、查询 5K QPS |
-| TRM 接入 (ClickHouse) | Rust ingest + 查询 API + 简单 Flaky | 5K events/s 接入 |
-| TMRM 资源池 + 健康 | 机器注册 / 心跳 / 分配器（5 算法） | 100 机器，分配 P95 < 200 ms |
-| EXF 改 Rust 内核 | 调度器 / 状态机 / Broker (NATS) | 调度 P95 < 50 ms |
-| gRPC 插件协议 v1 | Protobuf + Python SDK | 第三方开发者 1 天出插件 |
-| 2 个真实插件 | db-postgres (Rust) / web-chrome (Rust) | 跑通 50+ 真实场景 |
-| NATS JetStream | 任务总线 + 状态机持久化 | 5K tasks/s 吞吐 |
-| 集成 + 压测 | 端到端 + 性能基准 | 1K 并发用例 5K/分钟 |
-
-**关键决策点**：Rust EXF 内核与 Python CLI 是否并行；TCM 用 Go 还是 Rust。
-
----
-
-### v1.0 — 生产级（6 个月 / 5 人）
-
-**目标**：可对外发布，支持万级并发、10 类插件、3 大云厂商、安全合规、CI 深度集成。
-
-| 任务 | 产出 | 验收 |
-| --- | --- | --- |
-| Go / Rust 插件 SDK | 多语言官方 SDK + 文档 | SDK 一致性测试 100% |
-| 8+ 官方插件 | shell / http / python / 3 类 db / 2 类 web / llm | 18 个内置插件全部可用 |
-| 沙箱 (rlimit + seccomp + overlay) | 三档沙箱 + 凭据注入 | 默认 deny network |
-| 多云 TMRM | AWS / GCP / Azure SDK + 扩缩容 | 1K 机器弹性 5 min |
-| mTLS + Vault | 内部通信加密 + 凭据托管 | 安全审计通过 |
-| CI 集成 | GitLab / GitHub Actions / Webhook | 三家 CI 模板 + 文档 |
-| MCP Server (TCM/TRM) | 给 LLM 客户端的协议 | LLM 端到端 demo |
-| 性能基线 + 优化 | 调度/分发/插件 P95 SLO | 10K 并发，5K/分钟 |
-| 文档完整 | 用户/运维/插件开发文档 | 文档覆盖率 > 90% |
-
-**关键决策点**：插件签名（cosign）、Plugin Hub 设计、收费模型（开源/商业）。
-
----
-
-### v2.0 — AI 闭环（9 个月 / 6 人）
-
-**目标**：用例自动生成、自愈、失败预测；平台具备自我进化能力。
-
-| 任务 | 产出 | 验收 |
-| --- | --- | --- |
-| Flaky 检测 + 自愈 | 离线批 + LLM 改写 + dryrun 评审 | 自动修复 30% flaky |
-| 用例生成 (LLM) | 输入代码/diff/PR → YAML；lint+dryrun 强制 | 生成 100 用例 / 团队 / 周 |
-| Replayer / 失败回放 | 复现 + 训练样本 | 失败回放成功率 > 95% |
-| 预测性扩缩容 | 历史负载 + 调度提前 30 min | 资源利用率 +20% |
-| 多 region 灾备 | 跨 AZ + 跨 region | RTO < 5 min, RPO < 1 min |
-
----
-
-### v3.0 — 自治（12+ 个月 / 8 人）
-
-探索式测试 / 失败预测 / 智能调度 / 失败根因分析 / 自适应 SLA。
-
----
-
-## 4. 资源与团队
-
-### 4.1 推荐团队（v0.5 → v1.0）
-
-| 角色 | 人数 | 主要工作 |
-| --- | --- | --- |
-| 架构师 | 1 | EXF / TCM / TRM / TMRM 总体设计、Rust 内核 review |
-| 后端工程师 (Rust) | 1-2 | EXF 内核、gRPC、SDK、性能优化 |
-| 后端工程师 (Go) | 1-2 | TCM / TRM / TMRM 服务化 |
-| 插件工程师 | 1 | 18 个内置插件 + 第三方生态 |
-| 测试 / SRE | 1 | 压测、CI/CD、部署、监控 |
-| AI 工程师 | 0.5（v2.0 起） | LLM 集成、Flaky、自愈 |
-
-### 4.2 基础设施
-
-| 阶段 | 必备 |
-| --- | --- |
-| v0.5 | Linux dev box、GitHub、Slack |
-| v0.8 | K8s 测试集群、PG 16 + pgvector、Redis/NATS |
-| v1.0 | 多 AZ 部署、Vault、cosign、Prometheus + Tempo、ClickHouse、S3 |
-| v2.0 | 跨 region、向量库、LLM 网关、Plugin Hub |
-
----
-
-## 5. 关键风险与缓解
-
-| 风险 | 影响 | 概率 | 缓解 |
-| --- | --- | --- | --- |
-| EXF Rust 重写延期 | v0.8 推迟 | 中 | v0.5 维持 Python EXF + 性能优化；Rust 边角试点 |
-| 插件生态不活跃 | 推广受阻 | 高 | 18 个官方插件 + 文档 + 培训；与云厂商合作 |
-| 性能不达 SLO | 客户流失 | 中 | v0.8 起每阶段压测 + 性能基线；瓶颈早发现 |
-| LLM 不可控 | 生成垃圾用例 | 中 | lint + dryrun + 评审护栏；v1.0 才正式开放 |
-| 安全合规 | 不能落地 | 中 | v1.0 同步做 mTLS / RBAC / 审计 |
-| 团队人员流动 | 知识断层 | 中 | 详细设计文档 + 录制 ADR；关键决策需 review |
-
----
-
-## 6. 关键决策点（需要 review）
-
-| 决策 | 候选 | 推荐 | 决策时点 |
-| --- | --- | --- | --- |
-| EXF 核心语言 | Rust / Go | **Rust**（无 GC、零拷贝、调度热路径） | v0.5 末 |
-| TCM 核心语言 | Go / Rust | **Go**（HTTP/SQL 生态成熟、招人容易） | v0.5 末 |
-| 默认 broker | NATS / Redis Streams / Kafka | **NATS**（轻量、JetStream 够用） | v0.8 |
-| 状态机存储 | PG / Redis | **PG**（强一致 + 可观测） | v0.8 |
-| 插件默认进程模型 | Sidecar / Remote | **Sidecar**（K8s 友好） | v1.0 |
-| 插件签名 | cosign / in-house | **cosign**（keyless 简单） | v1.0 |
-| 商业模型 | 开源 / 商业 SaaS | **开源核心 + 商业控制面** | v1.0 末 |
-
----
-
-## 7. 立即可启动的下一步（v0.5 Sprint 1：2 周）
-
-按依赖顺序，最快能跑出价值的：
-
-| # | 任务 | 天 | 负责人 | 验收 |
-| --- | --- | --- | --- | --- |
-| 1 | `aitest-lint` 完整规则（参数 schema、模板变量、命名、死引用） | 3 | A | 100+ 规则，跑通 demo |
-| 2 | `aitest-dryrun` Python / Shell / LLM mock | 4 | A | 三类插件预演通过 |
-| 3 | `aitest run` 进程级 Worker Pool（`multiprocessing`） | 2 | A | 单机 200 并发 |
-| 4 | Result-Store 本地落盘（SQLite）+ JUnit/Allure 报告 | 3 | A | 1 万条结果可查 |
-| 5 | 用户文档 + 入门教程 | 2 | A + B | 新人 1 天接入 |
-| 6 | 性能基线 + 简单 dashboard | 1 | A | 跑 1K 用例报告 |
-
-**两周后**：能对外 demo；CI 集成示例；文档可读。
-
----
-
-## 8. 度量与验收节奏
-
-每个阶段必须满足的**硬指标**：
-
-| 阶段 | 用户数 | 用例数 | 并发 | 插件 | 团队满意度 |
+| 模块 \ 阶段 | v0.5 | v0.8 | v1.0 | v2.0 | v3.0 |
 | --- | --- | --- | --- | --- | --- |
-| v0.5 | 内部 10 人 | 1K | 200 | 3 mock | N/A |
-| v0.8 | 内部 50 人 | 10K | 1K | 2 真实 | NPS > 30 |
-| v1.0 | 外部 5 团队 | 100K | 10K | 8 真实 | NPS > 40 |
-| v2.0 | 外部 20 团队 | 1M | 10K | 18 + Hub | NPS > 50 |
-
-每两周一个 sprint review，月末发版本。
+| **TCM** 用例管理 | Python 内存版（已有） | Go + PG（JSONB + tsvector + pgvector），事件溯源，RBAC | 多租户分库，Git Bridge，MCP Server | 自愈触发器，用例推荐 | 自动合成 + 演进 |
+| **EXF** 执行框架 | Python 进程池，5 worker | **Rust** 内核 + 调度 + 状态机 + NATS | 高性能 Worker + 沙箱 + mTLS | 智能调度 / 预测 | 自治调度 |
+| **PLG** 插件系统 | 4 内置 (py) | gRPC 协议 v1 + Python/Go/Rust SDK + 2 真实插件 | 18 官方插件 + Sidecar + cosign | Plugin Hub + 社区 | 插件市场 |
+| **TRM** 报告管理 | JSON 报告 + JUnit | Rust ingest + PG + ClickHouse + Flaky | 全量查询 + 告警 + 导出 + MCP | AI 摘要 + 自愈触发 | 异常聚类 |
+| **TMRM** 机器资源 | 静态 worker 列表 | 机器注册 + 心跳 + 分配 + 5 算法 | 多云 + 弹性扩缩 + Quota + 维护 + 计费 | 预测扩容 + 故障预测 | 自愈资源池 |
+| **CLI** 工具链 | 完善 6 个子命令 | 配置文件 + 远程 API | 一键部署 + Web UI（轻） | Web UI 全功能 | 智能助手 |
+| **SDK** | Python 插件 | Python + Go + Rust | + Java + Node | TS SDK | 跨语言工具 |
+| **CI 集成** | GitHub Actions demo | GitLab / Jenkins | 自定义 Runner | 增量缓存 | 自适应 |
+| **基础设施** | Docker Compose | K8s Helm Chart | 多 AZ 部署 | 多 region | 跨云 + 边缘 |
+| **可观测** | 日志 + 简单指标 | Prometheus + Tempo | OTel 完整 + SLO | 异常检测 | 自治告警 |
+| **文档** | 用户指南 | 模块 + 插件开发指南 | 完整文档站 | 案例库 | 视频课程 |
+| **培训** | 内部分享 | 插件开发培训 | 公开 Webinar | 认证体系 | 合作伙伴 |
 
 ---
 
-## 9. 路线图对照
+## 6. 关键路径与依赖
 
-| 版本 | 里程碑 | 状态 |
+```mermaid
+flowchart TD
+  A[EXF Rust 内核] --> B[gRPC 协议 v1]
+  B --> C[插件 SDK]
+  C --> D[官方插件]
+  A --> E[EXF HA + 沙箱]
+  E --> F[v1.0 GA]
+  G[TCM Go] --> H[TCM PG Schema]
+  H --> F
+  I[TMRM 资源池] --> J[多云适配]
+  J --> F
+  K[TRM ClickHouse] --> L[Flaky 检测]
+  L --> F
+  D --> F
+  F --> M[AI 闭环 v2.0]
+  M --> N[自治 v3.0]
+```
+
+**关键路径**：EXF Rust 内核 → gRPC → SDK → 插件 → v1.0 GA。  
+**并行支线**：TCM、TRM、TMRM 可与 EXF 并行，但要在 v0.8 末对齐接口。
+
+---
+
+## 7. 资源与团队
+
+### 7.1 团队规模演进
+
+| 阶段 | 总人数 | 构成 |
 | --- | --- | --- |
-| v0.1 | Python 原型 | ✅ 2026-08 |
-| v0.5 | 单机生产可用 | ⬜ 2026-10 |
-| v0.8 | 分布式 + 多语言 | ⬜ 2027-01 |
-| v1.0 | 生产级发布 | ⬜ 2027-07 |
-| v2.0 | AI 闭环 | ⬜ 2028-04 |
+| v0.1（已完） | 2 | 架构师 + 全栈 |
+| v0.5 | 2-3 | + 1 工具链 |
+| v0.8 | 3-4 | + 1 后端 (Go) |
+| v1.0 | 5-6 | + 1 SRE + 1 插件工程师 |
+| v2.0 | 6-7 | + 1 AI 工程师 |
+| v3.0 | 8-10 | + 2 研究员 |
+
+### 7.2 角色矩阵
+
+| 角色 | 占比 | 主要交付 |
+| --- | --- | --- |
+| **架构师** | 1 | 设计 review、关键决策、ADR、跨模块协调 |
+| **EXF 工程师 (Rust)** | 1-2 | EXF 内核、gRPC、性能优化 |
+| **后端工程师 (Go)** | 1-2 | TCM / TRM / TMRM 服务化 |
+| **插件工程师** | 1 | 18 个官方插件 + 第三方 SDK |
+| **SRE / DevOps** | 1 | K8s、CI、监控、灾备 |
+| **AI 工程师** | 0.5-1 | LLM 集成、Flaky、自愈（v2.0 起） |
+| **测试 / QA** | 0.5-1 | 框架自身测试、性能基线、验收 |
+| **技术写作** | 0.5 | 文档、教程、培训 |
+
+### 7.3 基础设施预算（年）
+
+| 资源 | v0.5 | v0.8 | v1.0 | v2.0 |
+| --- | --- | --- | --- | --- |
+| K8s 集群 | - | $300/月 | $1.5K/月 | $5K/月 |
+| PG + ClickHouse + Redis | - | $200/月 | $800/月 | $3K/月 |
+| S3 / 对象存储 | - | $50/月 | $200/月 | $1K/月 |
+| LLM API | - | - | $300/月 | $1.5K/月 |
+| 杂项（CDN、DNS、域名） | $30/月 | $50/月 | $100/月 | $300/月 |
+| **合计** | **$30/月** | **$600/月** | **$2.9K/月** | **$10.8K/月** |
+
+---
+
+## 8. 基础设施演进
+
+| 阶段 | 部署形态 | 关键组件 |
+| --- | --- | --- |
+| v0.5 | Docker Compose | `aitest` 单容器 + SQLite + 本地 |
+| v0.8 | K8s 单集群 | Helm Chart + NATS + PG + Redis |
+| v1.0 | K8s 多 AZ | + ClickHouse + S3 + Vault + Prometheus + Tempo + cosign |
+| v2.0 | K8s 多 region | + 跨区复制 + LLM 网关 + Plugin Hub |
+| v3.0 | 跨云 + 边缘 | AWS/GCP/Azure + 边缘节点 |
+
+---
+
+## 9. 质量保证
+
+### 9.1 测试策略
+
+| 层 | 工具 | 覆盖率目标 |
+| --- | --- | --- |
+| 单元 | Rust `cargo test` / Go `go test` / Python `pytest` | 80%+ |
+| 集成 | docker-compose 测试套 | 关键路径 100% |
+| 端到端 | e2e harness | 全部模块联动场景 |
+| 性能 | k6 / wrk / criterion / vegeta | 调度 / 分发 / 查询 P95 |
+| 混沌 | chaos-mesh | worker 崩溃 / 网络分区 / broker 宕 |
+| 安全 | Trivy / cosign / OPA | 镜像扫描 / 签名 / 策略 |
+
+### 9.2 验收门槛
+
+每个阶段必须满足：
+
+- [ ] 所有 FR / NFR 验收项通过
+- [ ] 性能基线达标
+- [ ] 安全审计通过（v1.0+）
+- [ ] 文档完整度 > 90%
+- [ ] 内部团队 NPS > 30
+- [ ] 至少 1 个外部 beta 客户跑通
+
+---
+
+## 10. 关键风险与缓解
+
+| 风险 | 概率 | 影响 | 缓解 |
+| --- | --- | --- | --- |
+| EXF Rust 重写延期 | 中 | 高 | v0.5 保留 Python EXF + 性能优化；并行试点 |
+| 插件生态冷启动 | 高 | 高 | 18 个官方插件 + 云厂商合作 + Plugin Hub |
+| 性能不达 SLO | 中 | 高 | v0.8 起每阶段压测 + 性能基线 |
+| LLM 不可控 | 中 | 中 | lint + dryrun + 评审护栏（v1.0 才正式开放） |
+| 安全合规 | 中 | 高 | v1.0 同步 mTLS / RBAC / 审计 |
+| 人员流动 | 中 | 中 | 设计文档 + ADR + 关键决策 review |
+| 范围蔓延 | 高 | 中 | 每个版本有“必做 / 不做”清单 |
+| 跨模块协调 | 中 | 中 | 每周架构例会 + 接口冻结日 |
+
+---
+
+## 11. 商业化与开源策略
+
+### 11.1 开源 vs 商业
+
+| 范围 | 开源 (Apache 2.0) | 商业 |
+| --- | --- | --- |
+| TCM / EXF / TRM / TMRM / PLG 核心 | ✅ | — |
+| 18 个官方插件 | ✅ | — |
+| 文档、SDK | ✅ | — |
+| 单集群部署 | ✅ | — |
+| 多 region / 跨云 | — | ✅ |
+| Plugin Hub 商业插件 | — | ✅ |
+| 控制台（Web UI 完整版） | 基础 | ✅ |
+| 7×24 SLA 保障 | — | ✅ |
+| AI 闭环（自愈 / 生成） | 基础 | ✅ 高级 |
+
+### 11.2 商业模式（候选）
+
+- **开源核心 + 商业控制面**：社区版免费，企业版（控制台 + 多 region + SLA）按年订阅
+- **Plugin Hub 抽成**：第三方插件上架收 30% 流水
+- **专业服务**：定制插件开发、迁移、培训
+
+### 11.3 时间表
+
+| 时点 | 动作 |
+| --- | --- |
+| v0.8 | 决定开源协议 + 商标 |
+| v1.0 末 | 公开 GA，GitHub + 官网 |
+| v1.0 + 3 月 | 上线 Plugin Hub Beta |
+| v2.0 末 | 商业控制面 Beta |
+| v2.0 + 6 月 | 商业 GA |
+
+---
+
+## 12. 沟通与协作
+
+| 频率 | 会议 | 参与人 |
+| --- | --- | --- |
+| 每日 | Stand-up | 全员 |
+| 每周 | Sprint Planning + Review | 全员 |
+| 每周 | 架构例会 | 架构师 + 各 lead |
+| 每月 | Roadmap review | 全员 + 利益相关方 |
+| 每季 | 客户访谈 / NPS | PM + 架构师 |
+| 实时 | Slack/飞书 | 全员 |
+
+文档规约：
+- 设计 / 决策记 ADR（Architecture Decision Record）
+- 每个 PR 关联 issue + 测试
+- 每版本发 Release Notes
+
+---
+
+## 13. 成功指标（OKR 模板）
+
+### 13.1 v0.5 OKR
+
+- **O**：让现有原型可在 CI 中跑通
+- **KR1**：`aitest-lint` 在 CI 中拦截 ≥ 50% 坏用例
+- **KR2**：`aitest-dryrun` 跑通 3 类插件
+- **KR3**：内部 1 个团队接入并跑 200 用例
+- **KR4**：性能基线文档 + dashboard 发布
+
+### 13.2 v1.0 OKR
+
+- **O**：可对外 GA
+- **KR1**：5 个外部 beta 团队跑通 100K 用例
+- **KR2**：NPS ≥ 40
+- **KR3**：调度 P95 ≤ 50 ms，分发 P95 ≤ 200 ms
+- **KR4**：18 个官方插件全部可用
+- **KR5**：文档完整度 ≥ 90%
+
+### 13.3 v2.0 OKR
+
+- **O**：AI 闭环可用
+- **KR1**：flaky 自动修复率 ≥ 30%
+- **KR2**：LLM 生成用例每周 ≥ 100 / 团队
+- **KR3**：Replayer 复现成功率 ≥ 95%
+- **KR4**：多 region RTO ≤ 5 min
+
+---
+
+## 14. 关键决策（需要 review）
+
+| 决策 | 候选 | 推荐 | 时点 |
+| --- | --- | --- | --- |
+| EXF 核心语言 | Rust / Go | **Rust** | v0.5 末 |
+| TCM 核心语言 | Go / Rust | **Go** | v0.5 末 |
+| 默认 broker | NATS / Redis / Kafka | **NATS** | v0.8 |
+| 状态机存储 | PG / Redis | **PG** | v0.8 |
+| 沙箱默认模型 | Sidecar / Remote | **Sidecar** | v1.0 |
+| 插件签名 | cosign / 自研 | **cosign** | v1.0 |
+| 商业模型 | 开源核心 / 纯商业 / 双轨 | **双轨** | v1.0 末 |
+| License | Apache 2.0 / BSL / 商业 | **Apache 2.0** | v0.8 末 |
+| AI 闭环开放 | 立即开放 / v2.0 开放 | **v2.0 开放** | v2.0 |
+
+---
+
+## 15. 立即可启动（v0.5 Sprint 1：2 周）
+
+```
+1. aitest-lint 完整规则           3d
+2. aitest-dryrun py/sh/llm mock   4d
+3. 进程级 Worker Pool              2d
+4. SQLite Result-Store + 报告      3d
+5. 用户文档 + 入门教程             2d
+6. 性能基线 + dashboard            1d
+```
+
+两周后能对内 demo、CI 集成示例、文档可读。
+
+---
+
+## 16. 文档与培训
+
+| 阶段 | 文档 | 培训 |
+| --- | --- | --- |
+| v0.5 | 用户指南、快速开始、CLI 参考 | 内部 1 次分享 |
+| v0.8 | 模块设计、插件开发指南、运维指南 | 插件开发培训（2 天） |
+| v1.0 | 完整文档站、API 参考、最佳实践、案例 | 公开 Webinar（3 场） |
+| v2.0 | AI 闭环指南、案例库 | 认证体系（Lv1-3） |
+| v3.0 | 视频课程、合作伙伴培训 | 联合实验室 |
+
+---
+
+## 17. 关键里程碑一览
+
+| 时点 | 里程碑 | 标志 |
+| --- | --- | --- |
+| 2026-08 | v0.1 GA | Python 原型 + 35 单测通过 |
+| 2026-10 | v0.5 GA | lint + dryrun + 进程池，1 团队灰度 |
+| 2027-01 | v0.8 RC | EXF Rust + TCM Go + gRPC 插件 |
+| 2027-07 | **v1.0 GA** | 18 插件 + 沙箱 + 多云 + CI + MCP |
+| 2028-04 | v2.0 GA | AI 闭环 + 多 region |
+| 2028-10 | v3.0 GA | 自治测试 |
 
