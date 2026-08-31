@@ -1,0 +1,296 @@
+// SPDX-License-Identifier: Apache-2.0
+//
+// plan.proto — EXF 执行计划契约
+//
+// TCM/CI/MCP/Schedule 通过本契约向 EXF 提交执行计划。
+// 一份 Plan = 一个用例集合 + 一个调度策略 + 一个资源约束。
+
+syntax = "proto3";
+
+package aitest.plan.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "aitest/case/v1/case.proto";
+
+option go_package = "github.com/aitest/contracts/gen/go/aitest/plan/v1;planv1";
+option java_package = "com.aitest.contracts.plan.v1";
+option csharp_namespace = "Aitest.Contracts.Plan.V1";
+
+// Plan —— 一次执行计划
+message Plan {
+  // "plan-<uuid>"，由 EXF 端在 Submit 时填充
+  string id = 1;
+
+  // 计划名（人类可读）。例: "nightly-2026-08-30"、"pr-1234-smoke"
+  string name = 2;
+  string description = 3;
+
+  // 用例选择器（详见 CaseSelector）。Plan 提交时立即展开为 CaseRef 列表缓存。
+  aitest.case.v1.CaseSelector selector = 10;
+
+  // 已展开的用例引用快照（Plan 提交后立即解析，避免运行时 TCM 变更影响）。
+  // TCM 服务端展开后写入，EXF 不再二次查询 TCM。
+  repeated ResolvedCaseRef resolved_cases = 11;
+
+  // 触发上下文
+  Trigger trigger = 20;
+
+  // 资源需求（交 TMRM 决策）
+  ResourceRequirement resource = 30;
+
+  // 执行策略
+  ExecutionPolicy policy = 40;
+
+  // 全局重试（覆盖 Step 级）
+  RetryPolicy retry = 50;
+
+  // 全局超时（毫秒）。包含排队 + 执行。0 = 不限。
+  int64 timeout_ms = 60;
+
+  // 优先级（broker 路由）
+  PriorityLevel priority = 61;
+
+  // 标签（K=V，仅作查询 / 路由用，不影响行为）
+  map<string, string> labels = 70;
+
+  // 计划级 Observer 注入
+  repeated string observers = 71;
+
+  // 元数据
+  google.protobuf.Timestamp created_at = 80;
+  string created_by = 81;
+
+  // 计划级 fixture（scope=FIXTURE_SCOPE_PLAN）
+  repeated aitest.case.v1.Fixture fixtures = 90;
+}
+
+// 已解析的用例引用
+message ResolvedCaseRef {
+  string case_id = 1;
+  string content_hash = 2;
+  string semver = 3;
+  // 矩阵展开后的具体参数组合
+  google.protobuf.Struct params = 4;
+  // 唯一标识一次具体执行：f"{case_id}#{content_hash[:12]}#{params_hash[:8]}"
+  string instance_id = 5;
+}
+
+// 触发来源
+message Trigger {
+  TriggerSource source = 1;
+
+  // 触发者（CI build actor / 用户名 / system:scheduler 等）
+  string actor = 2;
+
+  // 外部系统关联 ID。例: CI build number、GitHub PR 号
+  string external_id = 3;
+
+  // 透传的上下文（如 git commit、branch）
+  google.protobuf.Struct context = 4;
+
+  // 父级 Plan ID（重试或子计划场景）
+  string parent_plan_id = 5;
+}
+
+enum TriggerSource {
+  TRIGGER_SOURCE_UNSPECIFIED = 0;
+  TRIGGER_SOURCE_MANUAL = 1;     // 用户手动（Web / CLI）
+  TRIGGER_SOURCE_CI = 2;         // CI 系统
+  TRIGGER_SOURCE_MCP = 3;        // AI 工具
+  TRIGGER_SOURCE_SCHEDULE = 4;   // 定时
+  TRIGGER_SOURCE_WEBHOOK = 5;    // 外部 webhook
+  TRIGGER_SOURCE_API = 6;        // 编程 API
+}
+
+// 资源需求
+message ResourceRequirement {
+  // 机器标签选择器（K=V，AND 关系）。与 TMRM Pool.Selector 语义一致。
+  map<string, string> labels = 1;
+
+  // 机器类型（host / browser / mobile / desktop / sandbox）
+  string machine_type = 2;
+
+  // 区域（provider 无关的抽象区域）
+  string region = 3;
+
+  // 用量上限
+  uint32 min_count = 4;
+  uint32 max_count = 5;
+}
+
+// 执行策略
+message ExecutionPolicy {
+  // 并发上限。<=0 表示不限（由 Worker Pool 决定）
+  uint32 concurrency = 1;
+
+  // 第一个失败是否立即终止整个 plan
+  bool fail_fast = 2;
+
+  // 干跑模式（不真正调用插件，仅验证选择器 / 协议连通性）
+  bool dry_run = 3;
+
+  // 分片（用于巨型 plan 拆分）
+  Sharding sharding = 4;
+
+  // 失败重试后是否回写到 replays/
+  bool record_failures = 5;
+
+  // 超时（毫秒）。覆盖 Plan.timeout_ms
+  int64 timeout_ms = 6;
+}
+
+// 分片
+message Sharding {
+  uint32 total_shards = 1;
+  uint32 shard_index = 2;
+  ShardingKey key = 3;
+}
+
+enum ShardingKey {
+  SHARDING_KEY_UNSPECIFIED = 0;
+  SHARDING_KEY_CASE_ID = 1;       // 按 case_id 哈希分片
+  SHARDING_KEY_CONTENT_HASH = 2;   // 按 content_hash 分片（更稳定）
+  SHARDING_KEY_RANDOM = 3;
+}
+
+enum PriorityLevel {
+  PRIORITY_LEVEL_UNSPECIFIED = 0;
+  PRIORITY_LEVEL_LOW = 1;        // 批量回归
+  PRIORITY_LEVEL_NORMAL = 2;     // 默认
+  PRIORITY_LEVEL_HIGH = 3;       // PR 验证
+  PRIORITY_LEVEL_CRITICAL = 4;   // 阻塞发布
+}
+
+// 重试策略（全局默认）
+message RetryPolicy {
+  uint32 max_attempts = 1;
+  int64 backoff_ms = 2;
+  double backoff_multiplier = 3;
+  int64 max_backoff_ms = 4;
+  repeated string retry_on = 5;
+}
+
+// PlanService —— EXF 对外暴露的 RPC
+service PlanService {
+  // 提交一份 Plan
+  rpc Submit(SubmitPlanRequest) returns (SubmitPlanResponse);
+
+  // 查询 Plan 详情
+  rpc Get(GetPlanRequest) returns (Plan);
+
+  // 取消一个正在运行的 Plan
+  rpc Cancel(CancelPlanRequest) returns (CancelPlanResponse);
+
+  // 列出 Plan（支持过滤）
+  rpc List(ListPlansRequest) returns (ListPlansResponse);
+
+  // 流式订阅 Plan 状态变更
+  rpc Stream(StreamPlanRequest) returns (stream PlanEvent);
+}
+
+message SubmitPlanRequest {
+  Plan plan = 1;
+
+  // 仅校验、不实际执行（dry-run）
+  bool validate_only = 2;
+
+  // 去重：相同 idempotency_key 的提交，EXF 应返回先前的 plan_id 而非重复执行
+  string idempotency_key = 3;
+}
+
+message SubmitPlanResponse {
+  string plan_id = 1;
+  bool accepted = 2;
+
+  // 校验错误（accepted=false 时填充）
+  repeated ValidationError errors = 3;
+
+  // 预估最早启动时间（毫秒 epoch）
+  int64 estimated_start_ms = 4;
+
+  // 已展开的用例数量
+  uint32 resolved_case_count = 5;
+}
+
+message ValidationError {
+  string field = 1;
+  string message = 2;
+  string code = 3;
+}
+
+message GetPlanRequest {
+  string plan_id = 1;
+}
+
+message CancelPlanRequest {
+  string plan_id = 1;
+  string reason = 2;
+
+  // 强制取消（即使有任务正在执行也立即停掉）
+  bool force = 3;
+}
+
+message CancelPlanResponse {
+  bool cancelled = 1;
+  uint32 cancelled_tasks = 2;
+  uint32 tasks_remaining = 3;
+}
+
+message ListPlansRequest {
+  uint32 page_size = 1;
+  string page_token = 2;
+
+  // 过滤
+  string status_filter = 3;    // "running" / "completed" / "failed" / "queued"
+  string created_by = 4;
+  int64 created_after_ms = 5;
+  int64 created_before_ms = 6;
+}
+
+message ListPlansResponse {
+  repeated Plan plans = 1;
+  string next_page_token = 2;
+}
+
+message StreamPlanRequest {
+  string plan_id = 1;
+  bool include_step_events = 2;
+}
+
+// PlanEvent —— Plan 状态流事件
+message PlanEvent {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_PLAN_QUEUED = 1;
+    KIND_PLAN_STARTED = 2;
+    KIND_CASE_QUEUED = 3;
+    KIND_CASE_STARTED = 4;
+    KIND_CASE_FINISHED = 5;
+    KIND_PLAN_PROGRESS = 6;
+    KIND_PLAN_COMPLETED = 7;
+    KIND_PLAN_FAILED = 8;
+    KIND_PLAN_CANCELED = 9;
+    KIND_LOG = 10;
+  }
+  Kind kind = 1;
+  string plan_id = 2;
+  string case_id = 3;
+  string instance_id = 4;
+  google.protobuf.Timestamp timestamp = 5;
+
+  // 日志级别（仅 KIND_LOG）
+  enum LogLevel {
+    LOG_LEVEL_UNSPECIFIED = 0;
+    LOG_LEVEL_DEBUG = 1;
+    LOG_LEVEL_INFO = 2;
+    LOG_LEVEL_WARN = 3;
+    LOG_LEVEL_ERROR = 4;
+  }
+  LogLevel log_level = 6;
+  string message = 7;
+
+  // 进度（KIND_PLAN_PROGRESS）
+  uint32 completed = 8;
+  uint32 total = 9;
+}

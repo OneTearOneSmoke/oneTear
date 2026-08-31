@@ -1,0 +1,21 @@
+version: v2
+
+# 模块根：proto/ 即 buf module 根
+modules:
+  - path: proto
+    name: buf.build/aitest/contracts
+
+# 严格 lint 规则集
+lint:
+  use:
+    - STANDARD
+
+# 破坏性变更检测：FILE 级别
+breaking:
+  use:
+    - FILE
+
+# 依赖：使用 well-known types
+deps:
+  - buf.build/googleapis/googleapis
+  - buf.build/protocolbuffers/wkt

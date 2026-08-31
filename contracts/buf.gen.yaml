@@ -1,0 +1,46 @@
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      path: github.com/aitest/contracts/gen/go
+    - file_option: csharp_namespace
+      path: Aitest.Contracts.Gen
+  cc_enable_arenas: true
+
+plugins:
+  # Go：gRPC + 标准消息
+  - remote: buf.build/protocolbuffers/go
+    out: gen/go
+  - remote: buf.build/grpc/go
+    out: gen/go
+
+  # Rust：prost + tonic
+  - remote: buf.build/community/neoeinsteinpro-prost-crate
+    out: gen/rust/aitest-contracts/src/pb
+    strategy: all
+    opt:
+      - crate=aitest-contracts
+  - remote: buf.build/community/neoeinsteinpro-tonic
+    out: gen/rust/aitest-contracts/src/pb
+    strategy: all
+
+  # Python：官方 protobuf + betterproto（提供 dataclass 风格）
+  - remote: buf.build/protocolbuffers/python
+    out: gen/python
+  - remote: buf.build/community/neoeinsteinpro-betterproto
+    out: gen/python
+
+  # Java：grpc-java + protobuf-java
+  - remote: buf.build/protocolbuffers/java
+    out: gen/java
+  - remote: buf.build/grpc/java
+    out: gen/java
+
+  # TypeScript（Web/MCP 用）
+  - remote: buf.build/community/neoeinsteinpro-ts-proto
+    out: gen/ts
+    opt:
+      - ts_proto_opt=esModuleInterop=true
+      - ts_proto_opt=outputServices=generic-definitions
+      - ts_proto_opt=useExactTypes=false

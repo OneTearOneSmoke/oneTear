@@ -1,0 +1,399 @@
+// SPDX-License-Identifier: Apache-2.0
+//
+// result.proto — EXF/TRM 结果契约
+//
+// EXF 执行完成后产出 Result，异步推送至 TRM 摄取层。
+// 同时也用作 TRM 对外查询 / 流式订阅的响应结构。
+
+syntax = "proto3";
+
+package aitest.result.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/aitest/contracts/gen/go/aitest/result/v1;resultv1";
+option java_package = "com.aitest.contracts.result.v1";
+option csharp_namespace = "Aitest.Contracts.Result.V1";
+
+// Result —— 单个用例实例的执行结果
+message Result {
+  // "result-<uuid>"
+  string id = 1;
+
+  // 所属 Plan
+  string plan_id = 2;
+
+  // 所属 Case
+  string case_id = 3;
+  string content_hash = 4;
+  string semver = 5;
+
+  // 唯一实例标识（与 ResolvedCaseRef.instance_id 对齐）
+  string instance_id = 6;
+
+  // 状态（终态）
+  Status status = 10;
+
+  // 尝试汇总
+  AttemptSummary summary = 11;
+
+  // 各步骤结果（按执行顺序）
+  repeated StepResult steps = 20;
+
+  // 失败上下文（用于 replays）
+  FailureContext failure = 30;
+
+  // 产物引用（日志、附件、截图等）
+  repeated Artifact artifacts = 40;
+
+  // 资源占用
+  ResourceUsage usage = 50;
+
+  // 执行上下文（在哪台机器、哪个 worker、用什么插件）
+  ExecutionContext context = 60;
+
+  // 时间戳
+  google.protobuf.Timestamp started_at = 70;
+  google.protobuf.Timestamp finished_at = 71;
+
+  // 触发来源透传（与 Plan.Trigger 对应）
+  string triggered_by = 80;
+  string trigger_external_id = 81;
+}
+
+// 终态枚举
+enum Status {
+  STATUS_UNSPECIFIED = 0;
+  STATUS_SUCCESS = 1;
+  STATUS_FAILED = 2;
+  STATUS_TIMEOUT = 3;
+  STATUS_CANCELED = 4;
+  STATUS_BLOCKED = 5;       // 被前置依赖阻塞
+  STATUS_ERROR = 6;         // 框架本身异常（区别于用例失败）
+  STATUS_SKIPPED = 7;       // 被策略跳过（如 lifecycle=DRAFT）
+  STATUS_TRANSIENT = 8;     // 重试中用
+}
+
+// 尝试汇总
+message AttemptSummary {
+  uint32 attempts = 1;             // 总尝试次数
+  uint32 retried = 2;              // 重试次数（不含首次）
+  int64 total_duration_ms = 3;     // 首次开始到最终结束
+  int64 wait_duration_ms = 4;      // 在 broker 中等待
+  int64 execution_duration_ms = 5; // 纯执行时间（不含重试间隔）
+  int64 plugin_duration_ms = 6;    // 插件调用时间（execution 的子集）
+}
+
+// 步骤结果
+message StepResult {
+  string name = 1;
+
+  // 步骤名（与 Case.steps[].name 对齐）
+  StepKind kind = 2;
+
+  Status status = 3;
+
+  int64 duration_ms = 4;
+
+  uint32 attempts = 5;
+
+  // 失败信息（如有）
+  string error_message = 6;
+  string error_type = 7;
+  string stack_trace = 8;
+
+  // 输出捕获（与 Step.capture_outputs 对齐）
+  google.protobuf.Struct outputs = 10;
+
+  // 实际上下文（如 db.query 后的 row_count、http 后的 status_code）
+  google.protobuf.Struct observed = 11;
+
+  // 重试历史
+  repeated AttemptHistory attempts_history = 12;
+}
+
+enum StepKind {
+  STEP_KIND_UNSPECIFIED = 0;
+  STEP_KIND_RUN = 1;
+  STEP_KIND_ASSERT = 2;
+  STEP_KIND_FIXTURE = 3;
+  STEP_KIND_RECORD = 4;
+}
+
+// 单次尝试记录（用于排查 flaky）
+message AttemptHistory {
+  uint32 attempt_number = 1;
+  Status status = 2;
+  int64 started_at_ms = 3;
+  int64 duration_ms = 4;
+  string error_message = 5;
+}
+
+// 失败上下文
+message FailureContext {
+  // 失败分类（用于 flaky 检测、replay、告警路由）
+  FailureClass classification = 1;
+
+  // 错误类型（机器可读）。例: "AssertionError"、"ConnectionRefused"
+  string error_type = 2;
+
+  string message = 3;
+  string stack_trace = 4;
+
+  // 重新执行所需的最小输入（replay data）
+  google.protobuf.Struct replay_input = 5;
+
+  // 是否可重放（即失败时输入仍可复现）
+  bool replayable = 6;
+
+  // 关联的 replays/ 资源 ID
+  string replay_ref = 7;
+}
+
+enum FailureClass {
+  FAILURE_CLASS_UNSPECIFIED = 0;
+  FAILURE_CLASS_ASSERTION = 1;       // 用例失败（assertion）
+  FAILURE_CLASS_TRANSIENT = 2;       // 偶发（网络抖动、临时不可用）
+  FAILURE_CLASS_INFRA = 3;           // 基础设施问题（机器、网络）
+  FAILURE_CLASS_PLUGIN = 4;          // 插件自身问题
+  FAILURE_CLASS_TIMEOUT = 5;
+  FAILURE_CLASS_RESOURCE = 6;        // 资源耗尽
+  FAILURE_CLASS_AUTHORING = 7;       // 用例编写错误
+  FAILURE_CLASS_UNKNOWN = 8;
+}
+
+// 产物引用
+message Artifact {
+  string name = 1;
+  // URI：s3://、cas://、file://
+  string uri = 2;
+  string mime_type = 3;
+  int64 size_bytes = 4;
+  string sha256 = 5;
+
+  // 类别（日志 / 截图 / 报告 / golden file 等）
+  ArtifactKind kind = 6;
+}
+
+enum ArtifactKind {
+  ARTIFACT_KIND_UNSPECIFIED = 0;
+  ARTIFACT_KIND_LOG = 1;
+  ARTIFACT_KIND_SCREENSHOT = 2;
+  ARTIFACT_KIND_TRACE = 3;        // OTel trace dump
+  ARTIFACT_KIND_METRICS = 4;
+  ARTIFACT_KIND_REPLAY = 5;
+  ARTIFACT_KIND_REPORT = 6;
+  ARTIFACT_KIND_OTHER = 99;
+}
+
+// 资源占用
+message ResourceUsage {
+  int64 cpu_ms = 1;
+  int64 memory_peak_bytes = 2;
+  int64 network_rx_bytes = 3;
+  int64 network_tx_bytes = 4;
+  int64 disk_read_bytes = 5;
+  int64 disk_write_bytes = 6;
+}
+
+// 执行上下文
+message ExecutionContext {
+  string worker_id = 1;
+  string machine_id = 2;
+  string region = 3;
+  string plugin_name = 4;
+  string plugin_version = 5;
+  map<string, string> labels = 6;
+  string image_ref = 7;          // 沙箱镜像
+}
+
+// 流式事件 —— EXF 推送给 TRM 摄取层
+message ResultEvent {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_PLAN_STARTED = 1;
+    KIND_PLAN_PROGRESS = 2;
+    KIND_PLAN_FINISHED = 3;
+    KIND_CASE_STARTED = 4;
+    KIND_CASE_RETRYING = 5;
+    KIND_CASE_FINISHED = 6;
+    KIND_STEP_STARTED = 7;
+    KIND_STEP_FINISHED = 8;
+    KIND_LOG = 9;
+    KIND_METRIC = 10;
+    KIND_HEARTBEAT = 11;
+  }
+
+  Kind kind = 1;
+  string plan_id = 2;
+  string case_id = 3;
+  string instance_id = 4;
+  string step_name = 5;
+
+  google.protobuf.Timestamp timestamp = 6;
+
+  oneof payload {
+    PlanStarted plan_started = 10;
+    PlanProgress plan_progress = 11;
+    PlanFinished plan_finished = 12;
+    CaseStarted case_started = 13;
+    CaseRetrying case_retrying = 14;
+    CaseFinished case_finished = 15;
+    StepStarted step_started = 16;
+    StepFinished step_finished = 17;
+    LogEvent log_event = 18;
+    MetricEvent metric_event = 19;
+    Heartbeat heartbeat = 20;
+  }
+}
+
+message PlanStarted {
+  uint32 total_cases = 1;
+}
+
+message PlanProgress {
+  uint32 completed = 1;
+  uint32 failed = 2;
+  uint32 total = 3;
+}
+
+message PlanFinished {
+  Status status = 1;
+  uint32 cases_total = 2;
+  uint32 cases_passed = 3;
+  uint32 cases_failed = 4;
+  uint32 cases_skipped = 5;
+  uint32 cases_errored = 6;
+  int64 total_duration_ms = 7;
+}
+
+message CaseStarted {
+  string content_hash = 1;
+  string semver = 2;
+}
+
+message CaseRetrying {
+  uint32 attempt = 1;
+  uint32 max_attempts = 2;
+  FailureContext last_failure = 3;
+}
+
+message CaseFinished {
+  Status status = 1;
+  AttemptSummary summary = 2;
+  FailureContext failure = 3;
+}
+
+message StepStarted {
+  string name = 1;
+  string plugin = 2;
+  string action = 3;
+}
+
+message StepFinished {
+  string name = 1;
+  Status status = 2;
+  int64 duration_ms = 3;
+  FailureContext failure = 4;
+  google.protobuf.Struct outputs = 5;
+}
+
+message LogEvent {
+  enum LogLevel {
+    LOG_LEVEL_UNSPECIFIED = 0;
+    LOG_LEVEL_DEBUG = 1;
+    LOG_LEVEL_INFO = 2;
+    LOG_LEVEL_WARN = 3;
+    LOG_LEVEL_ERROR = 4;
+  }
+  LogLevel level = 1;
+  string logger = 2;
+  string message = 3;
+  google.protobuf.Struct fields = 4;
+  string trace_id = 5;
+  string span_id = 6;
+}
+
+message MetricEvent {
+  string name = 1;
+  double value = 2;
+  map<string, string> labels = 3;
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+message Heartbeat {
+  string worker_id = 1;
+  int32 queue_depth = 2;
+  int32 active_tasks = 3;
+}
+
+// ResultService —— TRM 对外查询 / 流式接口
+service ResultService {
+  // 查询单个 Result
+  rpc Get(GetResultRequest) returns (Result);
+
+  // 列出 Result
+  rpc List(ListResultsRequest) returns (ListResultsResponse);
+
+  // 流式订阅（用于实时仪表盘 / Webhook）
+  rpc Stream(StreamResultsRequest) returns (stream ResultEvent);
+
+  // 计划汇总
+  rpc Summary(SummaryRequest) returns (SummaryResponse);
+
+  // 写回（用户标记 / 人工分类 / 抑制告警等）
+  rpc Annotate(AnnotateRequest) returns (AnnotateResponse);
+}
+
+message GetResultRequest {
+  string id = 1;
+}
+
+message ListResultsRequest {
+  string plan_id = 1;
+  string case_id = 2;
+  string status_filter = 3;
+  string tag_filter = 4;
+  int64 started_after_ms = 8;
+  int64 started_before_ms = 5;
+  uint32 page_size = 6;
+  string page_token = 7;
+}
+
+message ListResultsResponse {
+  repeated Result results = 1;
+  string next_page_token = 2;
+}
+
+message StreamResultsRequest {
+  string plan_id = 1;
+  string case_id = 2;
+  // 是否包含 step 级事件
+  bool include_step_events = 3;
+}
+
+message SummaryRequest {
+  string plan_id = 1;
+}
+
+message SummaryResponse {
+  uint32 total = 1;
+  map<string, uint32> by_status = 2;
+  int64 p50_duration_ms = 3;
+  int64 p95_duration_ms = 4;
+  int64 p99_duration_ms = 5;
+  // 失败分类直方图
+  map<string, uint32> by_failure_class = 6;
+}
+
+message AnnotateRequest {
+  string result_id = 1;
+  // 标签 / 备注 / 抑制告警
+  map<string, string> annotations = 2;
+  string comment = 3;
+}
+
+message AnnotateResponse {
+  bool ok = 1;
+}

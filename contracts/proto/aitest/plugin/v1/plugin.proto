@@ -1,0 +1,344 @@
+// SPDX-License-Identifier: Apache-2.0
+//
+// plugin.proto — PLG 插件协议契约
+//
+// 每个插件以 sidecar / 子进程方式实现本协议。
+// EXF 通过 gRPC 调用插件；插件通过 Manifest 声明自身能力。
+
+syntax = "proto3";
+
+package aitest.plugin.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/aitest/contracts/gen/go/aitest/plugin/v1;pluginv1";
+option java_package = "com.aitest.contracts.plugin.v1";
+option csharp_namespace = "Aitest.Contracts.Plugin.V1";
+
+// Status —— 插件侧的 status（与 result.Status 同义，独立定义避免耦合）
+enum Status {
+  STATUS_UNSPECIFIED = 0;
+  STATUS_SUCCESS = 1;
+  STATUS_FAILED = 2;
+  STATUS_TIMEOUT = 3;
+  STATUS_CANCELED = 4;
+  STATUS_ERROR = 5;
+}
+
+// Manifest —— 插件能力声明。Hello 时返回。
+message Manifest {
+  // 插件全局唯一名（小写下划线）。例: "db_sqlite"、"web_chrome"、"llm_gateway"
+  string name = 1;
+
+  // 插件版本（semver）。不同版本视为不同插件
+  string version = 2;
+
+  string description = 3;
+
+  // 制品哈希（cosign 兼容）。EXF 据此校验签名 / 防篡改
+  string artifact_hash = 4;
+
+  // 支持的命令列表
+  repeated Command commands = 10;
+
+  // 支持的断言器列表
+  repeated Assertor assertors = 11;
+
+  // 运行时需求
+  RuntimeRequirement runtime = 20;
+
+  // 可观测能力声明
+  Observability observability = 30;
+
+  // 插件配置 schema（启动时由 EXF 注入）
+  google.protobuf.Struct config_schema = 40;
+}
+
+// 单条命令声明
+message Command {
+  string name = 1;                      // 全限定名："db.query"
+  string description = 2;
+
+  // 入参 JSON Schema（约束 args 字段）
+  google.protobuf.Struct args_schema = 3;
+
+  // 输出 JSON Schema（约束 output 字段）
+  google.protobuf.Struct output_schema = 4;
+
+  // 副作用等级（决定 sandbox 策略）
+  SideEffectClass side_effect = 5;
+
+  // 推荐超时（毫秒）
+  int64 default_timeout_ms = 6;
+
+  // 是否流式输出（用于长时间运行的命令，如 watch）
+  bool streaming = 7;
+
+  // 是否幂等（重试安全）
+  bool idempotent = 8;
+}
+
+// 单条断言器声明
+message Assertor {
+  string name = 1;
+  string description = 2;
+
+  // spec JSON Schema
+  google.protobuf.Struct spec_schema = 3;
+
+  // value 的 JSON Schema（约束 value 字段类型）
+  google.protobuf.Struct value_schema = 4;
+}
+
+// 副作用等级 —— sandbox 策略依据
+enum SideEffectClass {
+  SIDE_EFFECT_UNSPECIFIED = 0;
+  SIDE_EFFECT_PURE = 1;          // 无副作用（纯计算）
+  SIDE_EFFECT_READ = 2;          // 只读
+  SIDE_EFFECT_LOCAL = 3;         // 影响本地目标（被测对象）
+  SIDE_EFFECT_NETWORK = 4;       // 影响外部网络
+  SIDE_EFFECT_DESTRUCTIVE = 5;   // 销毁资源（强隔离需求）
+}
+
+// 运行时需求
+message RuntimeRequirement {
+  // 必需能力。例: "NETWORK"、"DB_TCP"、"FILESYSTEM_RW"
+  repeated string capabilities = 1;
+
+  // 资源上限（hard limits）
+  ResourceLimits limits = 2;
+
+  // 镜像 / 二进制引用
+  string image_ref = 3;
+
+  // 入口点（覆盖镜像默认）
+  string entrypoint = 4;
+
+  // 必需的环境变量
+  map<string, string> required_env = 5;
+}
+
+message ResourceLimits {
+  int64 cpu_milli = 1;            // CPU 配额
+  int64 memory_bytes = 2;
+  int64 disk_bytes = 3;
+  int64 timeout_ms = 4;
+  int32 max_open_files = 5;
+  int32 max_processes = 6;
+  int64 max_network_rx_bps = 7;   // 限速
+  int64 max_network_tx_bps = 8;
+}
+
+// 可观测声明
+message Observability {
+  // 插件会发出的指标名（EXF 据此预创建 dashboard）
+  repeated string metrics = 1;
+
+  // 日志频道（按主题分类）
+  repeated string log_channels = 2;
+
+  // 是否发出 OTel trace
+  bool emits_traces = 3;
+
+  // 关键 span 名称
+  repeated string trace_spans = 4;
+}
+
+// 资源占用（与 result.ResourceUsage 同语义，独立定义）
+message ResourceUsage {
+  int64 cpu_ms = 1;
+  int64 memory_peak_bytes = 2;
+  int64 network_rx_bytes = 3;
+  int64 network_tx_bytes = 4;
+}
+
+// PluginService —— 每个插件实现的核心 RPC
+service PluginService {
+  // 连接握手 + 协商。EXF 调用 Hello 获取 Manifest 并校验版本
+  rpc Hello(HelloRequest) returns (HelloResponse);
+
+  // 执行命令
+  rpc Invoke(InvokeRequest) returns (InvokeResponse);
+
+  // 断言
+  rpc Assert(AssertRequest) returns (AssertResponse);
+
+  // 取消正在进行的调用
+  rpc Cancel(CancelRequest) returns (CancelResponse);
+
+  // 健康检查（liveness + readiness）
+  rpc Health(HealthRequest) returns (HealthResponse);
+
+  // 优雅停机
+  rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
+
+  // 流式订阅（用于 streaming command）
+  rpc Stream(stream StreamChunk) returns (stream StreamChunk);
+}
+
+// 握手
+message HelloRequest {
+  // EXF 客户端版本（contracts 版本）
+  string client_version = 1;
+
+  // EXF 在启动插件时注入的配置
+  google.protobuf.Struct config = 2;
+
+  // Sandbox 透传的运行时信息（IP、机器 ID 等）
+  google.protobuf.Struct runtime_info = 3;
+}
+
+message HelloResponse {
+  // 插件自身 Manifest
+  Manifest manifest = 1;
+
+  // 协商后的协议版本
+  string protocol_version = 2;
+
+  // 握手失败时的错误
+  string error_message = 3;
+}
+
+// 命令执行
+message InvokeRequest {
+  // 调用 ID（全局唯一，用于关联 cancel / result）
+  string id = 1;
+
+  // 命令名（在 Manifest.commands[].name 内）
+  string command = 2;
+
+  // 入参
+  google.protobuf.Struct args = 3;
+
+  // 超时（毫秒）
+  int64 timeout_ms = 4;
+
+  // 取消令牌（远端 cancel 走 Cancel RPC 时使用）
+  string cancel_token = 5;
+
+  // 调用方标识（trace / log 关联用）
+  string caller = 6;
+
+  // 透传的 trace context（OpenTelemetry 格式）
+  map<string, string> trace_context = 7;
+
+  // 透传的 baggage / labels
+  map<string, string> labels = 8;
+}
+
+message InvokeResponse {
+  string id = 1;
+
+  Status status = 2;
+
+  // 命令输出（结构由 Manifest.commands[].output_schema 约束）
+  google.protobuf.Struct output = 3;
+
+  // 错误信息（status != SUCCESS）
+  string error_message = 4;
+  string error_type = 5;
+  string stack_trace = 6;
+
+  // 资源占用
+  ResourceUsage usage = 7;
+
+  // 流式分片（streaming=true 时填充）
+  repeated google.protobuf.Struct chunks = 8;
+}
+
+// 断言
+message AssertRequest {
+  string id = 1;
+  string assertor = 2;
+
+  // 被断言的值
+  google.protobuf.Struct value = 3;
+
+  // 断言规格
+  google.protobuf.Struct spec = 4;
+
+  // 超时（毫秒）
+  int64 timeout_ms = 5;
+}
+
+message AssertResponse {
+  string id = 1;
+
+  bool passed = 2;
+
+  string message = 3;
+
+  // 失败时的诊断信息（如 expected / actual / diff）
+  google.protobuf.Struct diagnostics = 4;
+}
+
+// 取消
+message CancelRequest {
+  string id = 1;
+  string reason = 2;
+  // 是否强制（已开始的步骤也立即停）
+  bool force = 3;
+}
+
+message CancelResponse {
+  string id = 1;
+  bool cancelled = 2;
+}
+
+// 健康检查
+message HealthRequest {
+  bool detailed = 1;
+}
+
+message HealthResponse {
+  enum HealthStatus {
+    HEALTH_STATUS_UNSPECIFIED = 0;
+    HEALTH_STATUS_SERVING = 1;
+    HEALTH_STATUS_DEGRADED = 2;     // 部分能力可用
+    HEALTH_STATUS_NOT_SERVING = 3;
+  }
+
+  HealthStatus status = 1;
+
+  string message = 2;
+
+  // 详细健康信息（仅 detailed=true 时填充）
+  google.protobuf.Struct details = 3;
+
+  google.protobuf.Timestamp last_check_at = 4;
+
+  // 距离上次成功的依赖调用时间（用于自动降级）
+  int64 dependency_uptime_ms = 5;
+}
+
+// 优雅停机
+message ShutdownRequest {
+  int64 grace_period_ms = 1;
+  string reason = 2;
+}
+
+message ShutdownResponse {
+  bool graceful = 1;
+  uint32 inflight_calls = 2;
+}
+
+// 流式双向（用于 streaming command 和日志推送）
+message StreamChunk {
+  string id = 1;
+
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_OPEN = 1;
+    KIND_DATA = 2;
+    KIND_END = 3;
+    KIND_ERROR = 4;
+    KIND_CANCEL = 5;
+  }
+
+  Kind kind = 2;
+
+  google.protobuf.Struct payload = 3;
+
+  string error_message = 4;
+}

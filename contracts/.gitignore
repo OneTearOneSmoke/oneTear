@@ -1,0 +1,12 @@
+# 生成产物
+gen/
+
+# buf 临时文件
+.buf/
+.buf.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store

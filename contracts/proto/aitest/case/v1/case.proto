@@ -1,0 +1,229 @@
+// SPDX-License-Identifier: Apache-2.0
+//
+// case.proto — TCM 用例管理数据契约
+//
+// 内容寻址（content_hash）+ 语义版本（semver）+ 生命周期 + 矩阵展开。
+// 一份 Case 即一条可独立执行的测试用例，包含其全部步骤与断言。
+
+syntax = "proto3";
+
+package aitest.case.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/aitest/contracts/gen/go/aitest/case/v1;casev1";
+option java_package = "com.aitest.contracts.case.v1";
+option csharp_namespace = "Aitest.Contracts.Case.V1";
+
+// Case —— 一条用例，内容寻址 + 不可变快照
+message Case {
+  // 内容哈希（SHA-256 前 16 hex）。从规范化的字段计算，剔除 path/timestamps。
+  // 同一语义内容在不同路径、不同时刻写入，hash 必须相同。
+  string content_hash = 1;
+
+  // 语义版本（MAJOR.MINOR.PATCH）。由 authoring 工具 bump，不由 hash 派生。
+  // 同一 case 可有多个 semver 快照，按 (id, semver) 唯一定位。
+  string semver = 2;
+
+  // 人类可读 ID（不可变）。同一 ID 下可有多个 semver。
+  // 例: "ai.sort.correctness"、"smoke.login.basic"
+  string id = 10;
+
+  string name = 11;
+  string description = 12;
+
+  // 分类
+  repeated string tags = 20;
+
+  // 生命周期状态。控制是否可被 EXF 拉取执行。
+  Lifecycle lifecycle = 21;
+
+  // 矩阵参数。list 字段会自动笛卡尔积展开。
+  // 例: {"pg_version": [14, 15], "shard": [0, 1, 2]}
+  google.protobuf.Struct params = 30;
+
+  // 步骤（按顺序执行）
+  repeated Step steps = 40;
+
+  // 全局 Observer 名称列表（在 EXF 启动时注入）
+  repeated string observers = 50;
+
+  // 前置 / 后置 fixture（可选）
+  repeated Fixture setup_fixtures = 60;
+  repeated Fixture teardown_fixtures = 61;
+
+  // 作者信息
+  Author author = 70;
+
+  // 时间戳
+  google.protobuf.Timestamp created_at = 80;
+  google.protobuf.Timestamp updated_at = 81;
+
+  // CAS 引用：附件 / 资源文件（fixture data、golden file 等）
+  repeated Asset assets = 90;
+}
+
+// 生命周期状态
+enum Lifecycle {
+  LIFECYCLE_UNSPECIFIED = 0;
+  LIFECYCLE_DRAFT = 1;       // 草稿，不进 EXF
+  LIFECYCLE_ACTIVE = 2;      // 默认，可执行
+  LIFECYCLE_DEPRECATED = 3;  // 仍可执行，但日志/报告标记为 deprecated
+  LIFECYCLE_RETIRED = 4;     // 完全终止，不再执行
+}
+
+// 步骤
+message Step {
+  string name = 1;
+
+  StepKind kind = 2;
+
+  // 插件 ID（与 Plugin Manifest.name 对齐）。例: "db_sqlite"、"web_chrome"、"llm_gateway"
+  string plugin = 3;
+
+  // 命令名（在插件 Manifest.commands[].name 内）。例: "db.query"、"web.click"
+  string action = 4;
+
+  // 命令参数。结构由插件 Manifest.commands[].args_schema 约束。
+  google.protobuf.Struct args = 5;
+
+  // 断言（可选）。同一个 step 内 step.action 完成后立即校验。
+  Assert assert = 6;
+
+  // 步骤级重试策略（覆盖 Plan 默认）
+  RetryPolicy retry = 7;
+
+  // 步骤级超时（毫秒）
+  int64 timeout_ms = 8;
+
+  // 步骤失败时是否继续执行后续步骤
+  bool continue_on_failure = 9;
+
+  // 输出捕获：哪些字段写入 Result.steps[].output
+  repeated string capture_outputs = 10;
+}
+
+enum StepKind {
+  STEP_KIND_UNSPECIFIED = 0;
+  STEP_KIND_RUN = 1;       // 普通命令执行
+  STEP_KIND_ASSERT = 2;    // 纯断言（无插件调用，直接判值）
+  STEP_KIND_FIXTURE = 3;   // 仅作为 fixture 的一部分
+  STEP_KIND_RECORD = 4;    // 录制输出到 replay（不参与判定）
+}
+
+// 断言规格
+message Assert {
+  // 断言器名称（在插件 Manifest.assertors[].name 或内置 assertor 内）
+  string assertor = 1;
+
+  // 断言规格（参数）。由 assertor 的 spec_schema 约束。
+  google.protobuf.Struct spec = 2;
+
+  // 失败时的提示语
+  string message = 3;
+}
+
+// 重试策略
+message RetryPolicy {
+  // 最大尝试次数（含首次）。默认 1（不重试）
+  uint32 max_attempts = 1;
+
+  // 初次重试前的退避（毫秒）
+  int64 backoff_ms = 2;
+
+  // 退避乘子（指数退避）。1.0 = 固定退避
+  double backoff_multiplier = 3;
+
+  // 最大退避（毫秒）。超过则封顶
+  int64 max_backoff_ms = 4;
+
+  // 重试触发的 Status 列表。例: ["STATUS_FAILED", "STATUS_TIMEOUT", "STATUS_TRANSIENT"]
+  // 留空 = 默认（FAILED / TIMEOUT / TRANSIENT）
+  repeated string retry_on = 5;
+}
+
+// Fixture —— 有 setup/teardown 的资源准备块
+message Fixture {
+  string name = 1;
+  string plugin = 2;
+  string action = 3;
+  google.protobuf.Struct args = 4;
+
+  // 配套的 teardown 参数（在 setup 反向执行）。
+  // 字段语义由插件自行约定（如 db.exec 的 inverse_args 是 DELETE SQL）。
+  google.protobuf.Struct teardown_args = 5;
+
+  // fixture 作用域：plan / case / step
+  FixtureScope scope = 6;
+}
+
+enum FixtureScope {
+  FIXTURE_SCOPE_UNSPECIFIED = 0;
+  FIXTURE_SCOPE_PLAN = 1;    // 整个 plan 共享一个实例
+  FIXTURE_SCOPE_CASE = 2;    // 每个 case 一个实例
+  FIXTURE_SCOPE_STEP = 3;    // 每个 step 一个实例
+}
+
+// 作者信息
+message Author {
+  string name = 1;
+  string email = 2;
+  // 是否由 AI 辅助生成
+  bool ai_assisted = 3;
+  // 使用的模型（ai_assisted=true 时建议填写）
+  string model = 4;
+  // 创作的 commit / git ref（便于溯源）
+  string source_ref = 5;
+}
+
+// 静态资源附件
+message Asset {
+  string name = 1;
+  // CAS URI。例: "cas://sha256:abc123..." 或 "s3://bucket/key"
+  string uri = 2;
+  string mime_type = 3;
+  int64 size_bytes = 4;
+  string sha256 = 5;
+}
+
+// CasePage —— TCM 查询结果分页
+message CasePage {
+  repeated Case cases = 1;
+  string next_page_token = 2;
+  uint32 total_size = 3;
+}
+
+// CaseSelector —— TCM 查询条件（也用于 Plan.selector）
+message CaseSelector {
+  oneof kind {
+    CaseRefs refs = 1;
+    TagQuery tag_query = 2;
+    SuiteRef suite = 3;
+    CasePin pin = 4;
+  }
+}
+
+message CaseRefs {
+  repeated string case_ids = 1;
+}
+
+message TagQuery {
+  // 全部命中（AND）
+  repeated string all_of = 1;
+  // 任一命中（OR）
+  repeated string any_of = 2;
+  // 全部排除（NOT）
+  repeated string none_of = 3;
+}
+
+message SuiteRef {
+  string suite_id = 1;
+}
+
+message CasePin {
+  // 优先按 content_hash 精确匹配；否则按 semver（精确或范围）。
+  string content_hash = 1;
+  // semver range 表达式。例: ">=1.0.0, <2.0.0"
+  string semver_range = 2;
+}
