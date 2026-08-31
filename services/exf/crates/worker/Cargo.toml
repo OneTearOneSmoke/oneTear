@@ -1,0 +1,13 @@
+[package]
+name = "aitest-worker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+aitest-core = { workspace = true }
+aitest-broker = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

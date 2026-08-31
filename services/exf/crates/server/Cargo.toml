@@ -1,0 +1,18 @@
+[package]
+name = "aitest-exf-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "exf-server"
+path = "src/main.rs"
+
+[dependencies]
+aitest-core = { workspace = true }
+aitest-scheduler = { workspace = true }
+aitest-worker = { workspace = true }
+aitest-broker = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
