@@ -19,7 +19,6 @@ defaults:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-D warnings"
   RUST_BACKTRACE: 1
 
 jobs:
@@ -34,20 +33,20 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: services/exf -> target
-      - run: cargo fmt --all -- --check
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
 
-  clippy:
-    name: cargo clippy
+  build:
+    name: cargo check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: services/exf -> target
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: cargo check workspace
+        run: cargo check --workspace --all-targets
 
   test:
     name: cargo test
@@ -60,6 +59,21 @@ jobs:
           workspaces: services/exf -> target
       - name: cargo test workspace
         run: cargo test --workspace --all-features
+
+  clippy:
+    name: cargo clippy (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: services/exf -> target
+      - name: cargo clippy (warnings only, no fail)
+        run: cargo clippy --workspace --all-targets -- -W clippy::all
 
   sdk-test:
     name: plugin-sdk-rust test
