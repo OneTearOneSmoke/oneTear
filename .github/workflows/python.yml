@@ -1,0 +1,55 @@
+name: python
+
+on:
+  push:
+    branches: [main, new_frame]
+    paths:
+      - "sdk/plugin-sdk-python/**"
+      - ".github/workflows/python.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "sdk/plugin-sdk-python/**"
+
+defaults:
+  run:
+    working-directory: sdk/plugin-sdk-python
+
+jobs:
+  test:
+    name: pytest
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install pytest
+        run: python -m pip install --upgrade pip pytest
+      - name: Run tests
+        run: python -m pytest tests/ -v
+
+  lint:
+    name: import smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Import smoke
+        run: |
+          PYTHONPATH=src python -c "
+          from aitest_sdk import PluginServer
+          s = PluginServer(name='smoke', version='0.0.1')
+          @s.command('noop')
+          def noop(args): return args
+          @s.assertor('truthy')
+          def truthy(v, _): return (bool(v), 'ok')
+          assert s._commands['noop']({'x':1}) == {'x':1}
+          assert s._assertors['truthy'](1, {})[0] is True
+          print('Python SDK smoke OK')
+          "

@@ -1,0 +1,106 @@
+name: go
+
+on:
+  push:
+    branches: [main, new_frame]
+    paths:
+      - "services/**"
+      - "sdk/plugin-sdk-go/**"
+      - "contracts/**"
+      - ".github/workflows/go.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "services/**"
+      - "sdk/plugin-sdk-go/**"
+      - "contracts/**"
+
+jobs:
+  buf-generate:
+    name: buf generate (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
+          version: "1.34.0"
+      - name: buf generate Go only
+        run: |
+          cd contracts
+          buf generate --template '{"version":"v2","managed":{"enabled":true,"override":[{"file_option":"go_package_prefix","path":"github.com/aitest/contracts/gen/go"}]},"plugins":[{"remote":"buf.build/protocolbuffers/go","out":"gen/go"},{"remote":"buf.build/grpc/go","out":"gen/go"}]}'
+      - name: Save generated code
+        uses: actions/upload-artifact@v4
+        with:
+          name: contracts-gen-go
+          path: contracts/gen/go
+          if-no-files-found: error
+          retention-days: 1
+
+  tcm:
+    name: tcm (Go)
+    needs: buf-generate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: contracts-gen-go
+          path: contracts/gen/go
+      - working-directory: services/tcm
+        run: go vet ./... && go build ./... && go test -race -count=1 ./...
+
+  trm:
+    name: trm (Go)
+    needs: buf-generate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: contracts-gen-go
+          path: contracts/gen/go
+      - working-directory: services/trm
+        run: go vet ./... && go build ./... && go test -race -count=1 ./...
+
+  tmrm:
+    name: tmrm (Go)
+    needs: buf-generate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: contracts-gen-go
+          path: contracts/gen/go
+      - working-directory: services/tmrm
+        run: go vet ./... && go build ./... && go test -race -count=1 ./...
+
+  plugin-sdk-go:
+    name: plugin-sdk-go (Go)
+    needs: buf-generate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: contracts-gen-go
+          path: contracts/gen/go
+      - working-directory: sdk/plugin-sdk-go
+        run: go vet ./... && go build ./... && go test -race -count=1 ./...
