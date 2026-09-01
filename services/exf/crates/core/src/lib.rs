@@ -5,6 +5,14 @@
 //! - 所有状态转移必须经过 [`StateMachine::can_transition`] 校验
 //! - 与 contracts/proto 的关系：本 crate 定义 Rust 内部强类型；
 //!   API 层负责与 protobuf message 转换
+//!
+//! 模块清单：
+//! - 本文件：TaskState / StateMachine / Task
+//! - `instance_id`：稳定任务实例 ID
+//! - `dag`：DAG 节点与依赖图
+
+pub mod dag;
+pub mod instance_id;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -46,6 +54,11 @@ impl TaskState {
         )
     }
 
+    /// 是否可被重试（Failed / Timeout / Error 可重试；Succeeded / Canceled 不可）
+    pub fn is_retryable(self) -> bool {
+        matches!(self, Self::Failed | Self::Timeout | Self::Error)
+    }
+
     /// 状态名（与 contracts.proto Status 双向映射）
     pub fn as_str(self) -> &'static str {
         match self {
@@ -59,6 +72,23 @@ impl TaskState {
             Self::Canceled => "canceled",
             Self::Blocked => "blocked",
             Self::Error => "error",
+        }
+    }
+
+    /// 从字符串还原（仅供反序列化用，未知值返回 Queued）
+    pub fn from_str_loose(s: &str) -> Self {
+        match s {
+            "queued" => Self::Queued,
+            "assigned" => Self::Assigned,
+            "running" => Self::Running,
+            "succeeded" => Self::Succeeded,
+            "failed" => Self::Failed,
+            "retrying" => Self::Retrying,
+            "timeout" => Self::Timeout,
+            "canceled" => Self::Canceled,
+            "blocked" => Self::Blocked,
+            "error" => Self::Error,
+            _ => Self::Queued,
         }
     }
 }
@@ -97,6 +127,7 @@ pub trait StateMachine {
             (Running, Retrying) => true,
             (Failed, Retrying) => true,
             (Timeout, Retrying) => true,
+            (Error, Retrying) => true,
             // 重试 → 入队
             (Retrying, Queued) => true,
             // 阻塞 → 运行
@@ -126,6 +157,7 @@ pub trait StateMachine {
 /// Task 实例（与 contracts.proto Result 对应但更精简）
 #[derive(Debug, Clone)]
 pub struct Task {
+    /// 实例 ID —— 见 [`instance_id::InstanceId`]
     pub instance_id: String,
     pub plan_id: String,
     pub case_id: String,
@@ -134,6 +166,8 @@ pub struct Task {
     pub params: serde_json::Value,
     pub state: TaskState,
     pub attempts: u32,
+    /// 可重试次数上限（来自 plan 或 case）
+    pub max_attempts: u32,
 }
 
 impl StateMachine for Task {
@@ -158,13 +192,14 @@ impl Task {
         let case_id = case_id.into();
         let content_hash = content_hash.into();
         let semver = semver.into();
-        let instance_id = format!(
-            "{}#{}#{}#{}",
-            case_id,
-            &content_hash[..12.min(content_hash.len())],
-            semver,
-            short_hash(&params),
-        );
+        let instance_id = crate::instance_id::InstanceId::new(
+            &plan_id,
+            &case_id,
+            &content_hash,
+            &semver,
+            &params,
+        )
+        .into_string();
         Self {
             instance_id,
             plan_id,
@@ -174,16 +209,14 @@ impl Task {
             params,
             state: TaskState::Queued,
             attempts: 0,
+            max_attempts: 3,
         }
     }
-}
 
-fn short_hash(v: &serde_json::Value) -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut h = DefaultHasher::new();
-    v.to_string().hash(&mut h);
-    format!("{:016x}", h.finish())[..8].to_string()
+    /// 是否还能继续尝试
+    pub fn can_retry(&self) -> bool {
+        self.attempts < self.max_attempts
+    }
 }
 
 #[cfg(test)]
@@ -207,9 +240,35 @@ mod tests {
     }
 
     #[test]
+    fn retry_transitions_legal() {
+        assert!(Task::can_transition(TaskState::Failed, TaskState::Retrying));
+        assert!(Task::can_transition(TaskState::Retrying, TaskState::Queued));
+    }
+
+    #[test]
     fn instance_id_is_stable() {
         let t1 = Task::new("p1", "ai.sort", "abcdef0123456789", "1.0.0", serde_json::json!({"a":1}));
         let t2 = Task::new("p1", "ai.sort", "abcdef0123456789", "1.0.0", serde_json::json!({"a":1}));
         assert_eq!(t1.instance_id, t2.instance_id);
+    }
+
+    #[test]
+    fn from_str_roundtrip() {
+        for s in [
+            TaskState::Queued,
+            TaskState::Running,
+            TaskState::Succeeded,
+            TaskState::Failed,
+        ] {
+            assert_eq!(TaskState::from_str_loose(s.as_str()), s);
+        }
+    }
+
+    #[test]
+    fn retryable_states() {
+        assert!(TaskState::Failed.is_retryable());
+        assert!(TaskState::Timeout.is_retryable());
+        assert!(!TaskState::Succeeded.is_retryable());
+        assert!(!TaskState::Canceled.is_retryable());
     }
 }

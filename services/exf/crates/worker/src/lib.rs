@@ -1,6 +1,14 @@
-//! aitest-worker —— Worker Pool
+//! aitest-worker —— Worker + WorkerPool
 //!
 //! 关联设计：[`docs/architecture-v3-modules.md §4`](worker)
+//!
+//! 模块清单：
+//! - 本文件：Worker trait + WorkerHandle
+//! - `pool`：WorkerPool trait + PoolConfig + PoolStats + TaskExecutor
+
+pub mod pool;
+
+pub use pool::{PoolConfig, PoolStats, TaskExecutor, TaskOutcome, WorkerPool};
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -36,28 +44,15 @@ pub trait Worker: Send + Sync {
     async fn shutdown(&self, grace: Duration) -> Result<(), WorkerError>;
 }
 
-/// 简易 Worker Pool 骨架：仅记录 worker 数量，未真实拉取 broker。
-pub struct WorkerPool {
-    concurrency: u32,
-}
-
-impl WorkerPool {
-    pub fn new(concurrency: u32) -> Self {
-        Self { concurrency }
-    }
-
-    pub fn concurrency(&self) -> u32 {
-        self.concurrency
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn pool_records_concurrency() {
-        let p = WorkerPool::new(100);
-        assert_eq!(p.concurrency(), 100);
+    fn worker_handle_constructs() {
+        let h = WorkerHandle {
+            worker_id: "w-1".into(),
+        };
+        assert_eq!(h.worker_id, "w-1");
     }
 }

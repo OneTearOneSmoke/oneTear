@@ -1,6 +1,12 @@
 //! aitest-scheduler —— Plan → DAG → Task
 //!
 //! 关联设计：[`docs/architecture-v3-modules.md §4`](scheduler)
+//!
+//! 模块清单：
+//! - 本文件：Scheduler trait + InMemoryScheduler + PlanHandle/PlanStatus/CancelSummary
+//! - `dag`：DagExpander trait + DefaultExpander
+
+pub mod dag;
 
 use std::sync::Arc;
 
@@ -76,6 +82,10 @@ pub trait Scheduler: Send + Sync {
 }
 
 /// TaskSpec —— 已解析的 Task 规格（由 Plan.Submit 时 TCM 提供）
+///
+/// 字段扩展（Sprint 1）：
+/// - `depends_on`：DAG 依赖（Sprint 1 新增；之前未使用）
+/// - `max_attempts`：每个 Task 的最大重试次数（默认 3）
 #[derive(Debug, Clone)]
 pub struct TaskSpec {
     pub case_id: String,
@@ -83,17 +93,27 @@ pub struct TaskSpec {
     pub semver: String,
     pub params: serde_json::Value,
     pub priority: i32,
+    #[serde(default)]
+    pub depends_on: Vec<String>,
+    #[serde(default = "default_max_attempts")]
+    pub max_attempts: u32,
+}
+
+fn default_max_attempts() -> u32 {
+    3
 }
 
 impl TaskSpec {
     pub fn into_task(&self, plan_id: &str) -> Task {
-        Task::new(
+        let mut t = Task::new(
             plan_id,
             &self.case_id,
             &self.content_hash,
             &self.semver,
             self.params.clone(),
-        )
+        );
+        t.max_attempts = self.max_attempts;
+        t
     }
 }
 
@@ -144,7 +164,10 @@ impl Scheduler for InMemoryScheduler {
         _force: bool,
     ) -> Result<CancelSummary, SchedulerError> {
         let mut st = self.inner.write().await;
-        let tasks = st.plans.get_mut(plan_id).ok_or_else(|| SchedulerError::NotFound(plan_id.to_string()))?;
+        let tasks = st
+            .plans
+            .get_mut(plan_id)
+            .ok_or_else(|| SchedulerError::NotFound(plan_id.to_string()))?;
         let mut cancelled = 0;
         for t in tasks.iter_mut() {
             if !t.state.is_terminal() {
@@ -161,7 +184,10 @@ impl Scheduler for InMemoryScheduler {
 
     async fn status(&self, plan_id: &str) -> Result<PlanStatus, SchedulerError> {
         let st = self.inner.read().await;
-        let tasks = st.plans.get(plan_id).ok_or_else(|| SchedulerError::NotFound(plan_id.to_string()))?;
+        let tasks = st
+            .plans
+            .get(plan_id)
+            .ok_or_else(|| SchedulerError::NotFound(plan_id.to_string()))?;
         let mut s = PlanStatus {
             plan_id: plan_id.to_string(),
             queued: 0,
@@ -199,6 +225,8 @@ mod tests {
                 semver: "1.0.0".into(),
                 params: serde_json::json!({}),
                 priority: 0,
+                depends_on: vec![],
+                max_attempts: 3,
             },
             TaskSpec {
                 case_id: "ai.eval".into(),
@@ -206,9 +234,14 @@ mod tests {
                 semver: "1.0.0".into(),
                 params: serde_json::json!({}),
                 priority: 0,
+                depends_on: vec![],
+                max_attempts: 3,
             },
         ];
-        let h = sched.submit("plan-1", &specs, CancellationToken::new()).await.unwrap();
+        let h = sched
+            .submit("plan-1", &specs, CancellationToken::new())
+            .await
+            .unwrap();
         assert_eq!(h.task_count, 2);
         let s = sched.status("plan-1").await.unwrap();
         assert_eq!(s.queued, 2);
@@ -223,8 +256,13 @@ mod tests {
             semver: "1".into(),
             params: serde_json::json!({}),
             priority: 0,
+            depends_on: vec![],
+            max_attempts: 3,
         }];
-        sched.submit("plan-x", &specs, CancellationToken::new()).await.unwrap();
+        sched
+            .submit("plan-x", &specs, CancellationToken::new())
+            .await
+            .unwrap();
         let summary = sched.cancel("plan-x", "user", false).await.unwrap();
         assert_eq!(summary.cancelled_tasks, 1);
     }

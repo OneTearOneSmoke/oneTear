@@ -14,5 +14,10 @@ aitest-scheduler = { workspace = true }
 aitest-worker = { workspace = true }
 aitest-broker = { workspace = true }
 tokio = { workspace = true }
+tokio-util = "0.7"
 async-trait = { workspace = true }
+thiserror = { workspace = true }
 tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
