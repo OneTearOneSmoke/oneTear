@@ -6,15 +6,30 @@
 
 ---
 
-## 当前快照（2026-08-31）
+## 当前快照（2026-09-01）
 
 | 项 | 值 |
 | --- | --- |
-| 当前 Sprint | **S0.5**（骨架 + 接口）已完成；**S1** 待启动 |
+| 当前 Sprint | **S1 启动中**（接口先行 / 实现延后） |
 | 分支 | `new_frame` |
-| 最近提交 | `5945ac5` |
+| 最近提交 | `2260263` |
 | Python 原型 | 保留为参考，**不再维护** |
-| 整体评估 | 设计完整 / 骨架完成 / 业务实现 0% |
+| 整体评估 | 设计 v3 完整 / 接口签字 40% / 业务实现 ≈5% / **Sprint 1 重启** |
+| 新优先级 | **EXF › PLG SDK › TCM › TRM › TMRM › CLI/MCP**（详见 D-006） |
+| 4 原则 | 海量用例 / 高并发 / 可扩展 / 可观测 |
+
+### 完成度快照（用户视角）
+
+| 模块 | 接口 | 业务实现 | 真实 gRPC | 评估 |
+| --- | --- | --- | --- | --- |
+| **EXF** | ✅ 4 trait | 0%（InMemoryBroker/Scheduler 仅桩） | ❌ | P0-1 |
+| **PLG SDK** | ✅ 3 语言 | 0%（Serve 全是 stub） | ❌ | P0-2 |
+| **TCM** | ✅ CaseStore | 10%（inmem CRUD） | ❌ | P0-3 |
+| **TRM** | ✅ Analyzer | 0%（3 个 stub） | ❌ | P0-4 |
+| **TMRM** | ✅ Allocator | 5%（心跳检查） | ❌ | P1 |
+| **SDK Python** | ✅ 装饰器 API | 100%（本地 6/6 pytest） | ❌ | 唯一本地绿 |
+| CLI / MCP | ❌ | 0% | — | P2 |
+| Contracts | ✅ 4 proto | buf.gen 已配置 | — | 基础完成 |
 
 ---
 
@@ -135,20 +150,99 @@ clients/                            Sprint 7 占位
 - **决定**：Sprint 0.5 只签字 trait/interface，不写实现；实现按 Sprint 1+ 逐步填充
 - **好处**：实现开始前可被多 reviewer 同时审视设计
 
+### D-006 基于 4 原则的模块重新优先级（2026-09-01）
+
+- **背景**：原 D-003 优先级 EXF > TRM > TCM > TMRM 基于"Python 原型尚可跑通"假设；v3 彻底重画后该假设不成立
+- **设计原则**（v3 唯一指引）：
+  1. **海量用例** —— TCM 是数据基础，EXF 必须能流式拉取不下发全量
+  2. **高并发** —— EXF 是 hot path bottleneck（tokio / 零拷贝 / 无锁）
+  3. **可扩展** —— PLG SDK 与 EXF 同批落地（gRPC + 多语言 SDK + Manifest）
+  4. **可观测** —— TRM 是观测中心；OTel/Metrics/Trace 必须在每个模块 S1 起就默认开启
+- **决定**（新优先级）：
+
+| # | 模块 | 原则侧重 | Sprint |
+| --- | --- | --- | --- |
+| **P0-1** | EXF（执行引擎） | 高并发、可扩展 | **S1** |
+| **P0-2** | PLG SDK（插件系统） | 可扩展 | **S1**（与 EXF 并行） |
+| **P0-3** | TCM（用例管理） | 海量用例 | **S1 最小 + S2 硬化** |
+| **P0-4** | TRM（报告管理） | 可观测 | **S1 接口 + S4 落地** |
+| P1 | TMRM（机器资源） | 高并发（分布式） | S6 |
+| P2 | CLI / MCP / Web | 用户面 | S7 |
+| P3 | 安全 / 韧性 / GA | GA | S8 |
+
+- **与旧优先级对比**：
+  - 旧 EXF #1 → 新 EXF #1（不变）
+  - 旧 TRM #2 → 新 **PLG SDK #2**（"可扩展"原则要求 PLG 与 EXF 同批，旧优先级推到 S5 太晚）
+  - 旧 TCM #3 → 新 **TCM #3**（"海量用例"原则让 TCM 进 P0；旧优先级 S2 太晚会让 EXF/PLG 早期只能 mock）
+  - 旧 TMRM #4 → 新 **TRM #4**（"可观测"原则要求 TRM 与三大模块同批出埋点接口）
+- **关键动作**：可观测埋点（OTel/Metrics/Trace）从 S4 提前到 **S1 默认开启**——每个模块入口方法必须接 tracer/metrics 注入
+
+### D-007 "彻底重新实现"边界（2026-09-01）
+
+- **背景**：原 Python 原型（`src/aitest/`）字段语义 / 插件命令可参考，但实现层（线程池、内存存储、同进程 import）全部不可沿用
+- **决定**：
+  - ✅ **可借鉴**：字段命名（case.id / step.plugin+action）、插件命令清单（如 db_sqlite 的 5 个命令）、Flaky 滑动窗口算法思路
+  - ❌ **禁止沿用**：ThreadPoolExecutor、YAML 文件存储、同进程 import、内存分配器、即时聚合
+  - **新实现起算点**：`services/`（业务）+ `sdk/`（插件 SDK）+ `plugins/`（内置插件）
+- **后续动作**：
+  - 把 `src/aitest/` 移入 `docs/archive/v0-python/`（Sprint 1 末尾统一迁移）
+  - `docs/ai-test/*.md` 保留为"v0 设计参考"，**不**作为 v3 实现依据
+
+---
+
+## Sprint 1 — 最小真实闭环（🚧 启动中）
+
+> **目标**：EXF + PLG SDK + TCM + TRM 四模块**接口先行**，实现延后；以最小可端到端冒烟（1 case 走通）为验收。
+
+### 范围（接口优先）
+
+**EXF（Rust）**
+- `core/instance_id.rs`：实例 ID 稳定哈希算法
+- `core/dag.rs`：DAG 展开 trait（前置依赖）
+- `scheduler/dag.rs`：Plan → DAG → Task 展开
+- `worker/pool.rs`：WorkerPool trait（并发数 / 背压）
+- `server/grpc.rs`：tonic PlanServiceServer method 签名
+
+**PLG SDK（多语言）**
+- `plugin-sdk-go/server/grpc.go`：grpc-go PluginService 实现（Hello/Manifest/Invoke/Assert）
+- `plugin-sdk-rust/src/grpc.rs`：tonic PluginServiceServer 实现
+- `plugin-sdk-python/aitest_sdk/grpc_server.py`：grpcio PluginServiceServicer 实现
+
+**TCM（Go）**
+- `api/grpc.go`：从桩升级为 5 个 method 签名（Submit/Get/Cancel/List/Stream）
+- `store/inmem/inmem.go`：补 `Stream`/`Transition` 当前返回 nil 的实现
+- `domain/store.go`：增补 `BatchGet` 接口（EXF 展开用例用）
+
+**TRM（Go）**
+- `store/store.go`：ResultStore interface（Write / Read / Stream）
+- `analyzer/analyzer.go`：3 个 Analyzer 保持 stub，但补 Method 签名文档
+- `api/grpc.go`：从桩升级为 ResultService method 签名
+- `observability/metrics.go`：Prometheus 注册接口
+
+**demo 插件**
+- `plugins/db_sqlite/`（Go）：5 命令 + 3 断言器，参考 `src/aitest/plugins/db_sqlite.py` 的语义
+
+### 不在 S1 范围
+
+- ❌ 真实 PG / ClickHouse / NATS 接入（推到 S2-S4）
+- ❌ mTLS / Vault / cosign（推到 S8）
+- ❌ 插件沙箱（推到 S5）
+- ❌ MCP / Web（推到 S7）
+
 ---
 
 ## 路线图（接下来）
 
 | Sprint | 主题 | 关键产出 | 依赖 |
 | --- | --- | --- | --- |
-| **S1** | 最小端到端 | TCM inmem gRPC + EXF gRPC handler + Rust SDK 真实 server + db_sqlite 移植 + smoke E2E | S0, S0.5 |
-| S2 | TCM PG 硬化 | PG Schema（JSONB + tsvector + pgvector）+ content_hash 索引 + 分页 | S1 |
-| S3 | EXF 分布式 | NATS JetStream broker 实现 + 跨节点 Worker + 任务幂等 | S2 |
-| S4 | TRM 接入 | Rust 摄取（ClickHouse）+ Go API + Flaky/Baseline/Trend 真实实现 | S3 |
-| S5 | PLG 完善 | 多语言 SDK（Java / 真 sandbox / cosign 签名）+ 5 个官方插件 | S4 |
-| S6 | TMRM 接入 | Postgres + 多种分配策略 + EXF 集成 | S5 |
-| S7 | 用户面 | Python CLI + MCP Server + GitHub Actions | S6 |
-| S8 | v1.0 GA | mTLS + Vault + OPA + 性能基线 + 灾备 | S7 |
+| **S1**（P0 全开）| 最小真实闭环 | EXF 接口 + PLG SDK 真实 gRPC（3 端） + TCM inmem 流式读 + TRM ResultStore 接口 + db_sqlite demo + smoke E2E | S0, S0.5 |
+| S2 | TCM 硬化 | PG Schema（JSONB + tsvector + pgvector）+ content_hash 索引 + 分页 + cursor | S1 |
+| S3 | EXF 分布式 | NATS JetStream broker + 跨节点 Worker + 任务幂等 + 心跳 | S2 |
+| S4 | TRM 落地 | Rust 摄取（ClickHouse）+ Go API + Flaky/Baseline/Trend 真实算法 | S3 |
+| S5 | PLG 完善 | Java SDK + 真 sandbox（rlimit+seccomp）+ cosign + 5 官方插件 | S4 |
+| S6 | TMRM 接入 | PG + 多策略 Allocator + EXF 集成 + Quota | S5 |
+| S7 | 用户面 | Python CLI + MCP Server + Web UI + GitHub Actions | S6 |
+| S8 | v1.0 GA | mTLS + Vault + OPA + 性能基线 + 灾备演练 | S7 |
 
 ---
 

@@ -395,19 +395,32 @@ User / CI
 
 ---
 
-## 11. Sprint 切分与本文件的关系
+## 11. Sprint 切分与本文件的关系（基于 D-006 重新优先级）
 
-| Sprint | 落地此文件哪几章 |
-| --- | --- |
-| S0 (协议) | `contracts/` + `contracts.proto` 4 个文件（已完成） |
-| S1 (最小端到端) | §3 TCM 接口（最小子集）+ §4 EXF 接口（核心类型）+ §7 PLG Go SDK + db_sqlite 插件 |
-| S2 (数据层硬化) | §3 TCM PG Schema + §9.1 OTel 接入模板 |
-| S3 (分布式 EXF) | §4 EXF NATS 实现 + §7 PLG Rust SDK |
-| S4 (TRM 接入) | §5 TRM Go API + Rust 摄取 + §9 可观测 |
-| S5 (PLG 完善) | §7 全语言 SDK + Sidecar + Sandbox |
-| S6 (TMRM + 调度) | §6 TMRM 接口 + EXF 集成 |
-| S7 (CI/MCP/Web) | §8 CLI + MCP Server |
-| S8 (GA) | §9 安全 / 韧性 / 性能基线 |
+> 新优先级由 4 原则驱动：**海量用例 / 高并发 / 可扩展 / 可观测**。详细决策见 `docs/PROGRESS.md` D-006。
+
+| Sprint | 主题 | 优先级 | 落地此文件哪几章 | 关键产出 |
+| --- | --- | --- | --- | --- |
+| S0 | 协议 | ✅ 完成 | `contracts/` + §0 设计原则 | 4 proto + buf |
+| **S1** | **最小真实闭环** | **P0 全开** | **§3 TCM 最小接口 + §4 EXF 核心 trait 补齐 + §7 PLG SDK 真实 gRPC（3 端）+ §9.1 OTel 默认开启 + db_sqlite demo** | **EXF 接口 + PLG SDK 真实 gRPC + TCM 流式读 + TRM 接口 + smoke E2E** |
+| S2 | TCM 硬化 | P0-3 落地 | §3 TCM PG Schema + §9.1 OTel 接入模板 + §3.4 分页 cursor | PG JSONB + tsvector + pgvector + content_hash 索引 |
+| S3 | EXF 分布式 | P0-1 落地 | §4 EXF NATS 实现 + §6 TMRM 提前接口化（仅接口） | NATS JetStream broker + 跨节点 Worker + 任务幂等 |
+| S4 | TRM 落地 | P0-4 落地 | §5 TRM Go API + Rust 摄取 + §9 完整可观测 | ClickHouse + Flaky/Baseline/Trend 真实算法 |
+| S5 | PLG 完善 | P0-2 落地 | §7 Java SDK + 真 sandbox + cosign 签名 | 多语言 + 沙箱 + 5 官方插件 |
+| S6 | TMRM + 调度 | P1 落地 | §6 TMRM 多策略 Allocator + Quota + EXF 集成 | 真实分配 + 健康 + 跨云 |
+| S7 | CI/MCP/Web | P2 | §8 CLI + MCP Server + Web UI | 用户面 |
+| S8 | GA | P3 | §9 安全 / 韧性 / 性能基线 | mTLS + Vault + OPA |
+
+### 11.1 与原 Sprint 表的差异
+
+| 变更点 | 旧 | 新 | 理由 |
+| --- | --- | --- | --- |
+| **S1 范围** | 仅 TCM 最小子集 + EXF + Go SDK + db_sqlite | EXF + **PLG 全 SDK** + TCM + TRM 接口 + db_sqlite + **OTel 默认** | "可扩展"+"可观测"要求 P0 全开 |
+| **PLG 落地提前** | S5 | **S1（真实 gRPC）/ S5（Java + sandbox）** | "可扩展"原则：PLG 与 EXF 同批 |
+| **TRM 落地提前** | S4 | **S1（接口）/ S4（落地）** | "可观测"原则：埋点接口 S1 起默认开启 |
+| **可观测埋点提前** | S4 | **S1** | 每个模块入口方法必须接 tracer/metrics |
+| **Java SDK** | 未提及 | **S5 显式声明** | "可扩展"原则：覆盖 JVM 生态 |
+
 
 ---
 
